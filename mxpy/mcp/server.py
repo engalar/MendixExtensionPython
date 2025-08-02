@@ -24,6 +24,13 @@ async def run_async_server(freePort: int):
     importlib.reload(tools)
 
     mcp = tool_registry.mcp
+    
+    # pretty json output
+    # ts = await mcp.list_tools()
+    # import json
+    # jsonString = json.dumps([t.inputSchema for t in ts], indent=4)
+    # ctx.messageBoxService.ShowInformation(
+    #     "MCP Loaded {len(ts)} tools ", f"{jsonString}")
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):
