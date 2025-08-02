@@ -1,5 +1,3 @@
-# /your_python_script_folder/tools/__init__.py
-
 import pkgutil
 import importlib
 
@@ -9,14 +7,13 @@ import importlib
 # 它文件中定义的带有 @mcp.tool 装饰器的函数就会被执行并注册到共享的 mcp 实例中。
 # 这就是实现开闭原则的方式：要添加一个新工具，只需在此目录中创建一个新文件，
 # 无需修改任何现有代码。
+from .. import mendix_context as ctx
 
-print("正在动态加载工具...")
 
 for _, name, _ in pkgutil.iter_modules(__path__):
     try:
-        importlib.import_module(f".{name}", __name__)
-        print(f"  - 已成功加载工具模块: {name}")
+        # reload 模块
+        importlib.reload(importlib.import_module(f".{name}", __name__))
+        # importlib.import_module(f".{name}", __name__)
     except Exception as e:
-        print(f"  - 加载工具模块 {name} 失败: {e}")
-
-print("所有工具加载完毕。")
+        ctx.messageBoxService.ShowError(f"加载工具模块 {name} 失败: {e}")

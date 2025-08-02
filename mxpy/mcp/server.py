@@ -1,5 +1,7 @@
 # /your_python_script_folder/server.py
 
+import asyncio
+import importlib
 import anyio
 import uvicorn
 import contextlib
@@ -7,25 +9,28 @@ from starlette.applications import Starlette
 from starlette.responses import Response
 from starlette.routing import Route, Mount
 
-# 导入共享的 MCP 实例和 Mendix 上下文
-from .tool_registry import mcp
 from . import mendix_context as ctx
-
-# 关键：导入 'tools' 包以触发 __init__.py 中的动态加载
-from . import tools
-
-
-@contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
-    """管理 MCP 会话的生命周期。"""
-    async with mcp.session_manager.run():
-        yield
 
 
 async def run_async_server(freePort: int):
     """
     异步主函数，配置并运行 uvicorn 服务器。
     """
+
+    from mxpy.mcp import tool_registry
+    importlib.reload(tool_registry)
+    # 关键：导入 'tools' 包以触发 __init__.py 中的动态加载
+    from . import tools
+    importlib.reload(tools)
+
+    mcp = tool_registry.mcp
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette):
+        """管理 MCP 会话的生命周期。"""
+        async with mcp.session_manager.run():
+            yield
+
     def create_shutdown_handler(server_instance: uvicorn.Server):
         async def handle_shutdown(request):
             # ctx.messageBoxService.ShowInformation("Python: 收到来自 C# 的关闭请求。")
@@ -57,4 +62,5 @@ async def run_async_server(freePort: int):
         f"Python: 正在启动服务器 http://127.0.0.1:{freePort}")
     await server.serve()
     ctx.messageBoxService.ShowInformation("Python: 服务器已关闭。")
+
     return 0

@@ -1,8 +1,8 @@
 # /your_python_script_folder/main.py
 
 # --- 只保留绝对安全的顶层导入 ---
+import importlib
 from .mendix_context import set_mendix_services
-from .server import run_async_server
 import anyio
 import sys
 import clr
@@ -40,10 +40,12 @@ def run_server_blocking(
             microflowService,
             untypedModelAccessService
         )
+        from mxpy.mcp import server
+        importlib.reload(server)
 
         # 2. 运行异步服务器
         # anyio.run 将创建、运行和销毁它自己的事件循环，并阻塞直到 run_async_server 完成。
-        anyio.run(run_async_server, freePort)
+        anyio.run(server.run_async_server, freePort)
 
     except Exception as e:
         import traceback
