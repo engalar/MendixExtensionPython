@@ -1,8 +1,12 @@
+from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule, IFolder, IFolderBase  # type: ignore
 from typing import List, Literal, Tuple, Optional
 
 import clr
+
+from mxpy.model import module as _module
+import importlib
+importlib.reload(_module)
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
-from Mendix.StudioPro.ExtensionsAPI.Model.Projects  import IModule, IFolder, IFolderBase # type: ignore
 
 
 def ensure_folder(current_app, full_path: str) -> Tuple[Optional[IFolderBase], Optional[str], Optional[str]]:
@@ -32,29 +36,27 @@ def ensure_folder(current_app, full_path: str) -> Tuple[Optional[IFolderBase], O
 
     if not current_app.Root:
         return None, None, None
-        
+
     # 确保模块存在 (这里我们假设模块必须预先存在，不自动创建)
-    module = next((m for m in current_app.Root.GetModules() if m.Name == module_name), None)
-    if not module:
-        return None, None, None
+    module = _module.ensure_module(current_app, module_name)
 
     current_container: IFolderBase = module
-    
+
     # 迭代中间的文件夹部分 (跳过模块名和文档名)
     # parts[1:-1] 等同于 C# 的 .Skip(1).Take(parts.Length - 2)
     for part in parts[1:-1]:
         folders = current_container.GetFolders()
         next_container = next((f for f in folders if f.Name == part), None)
-        
+
         if next_container is None:
             # 文件夹不存在，创建它
             new_folder = current_app.Create[IFolder]()
             new_folder.Name = part
-            
+
             current_container.AddFolder(new_folder)
-            
+
             current_container = new_folder
         else:
             # 文件夹已存在，进入下一级
-            current_container = next_container 
+            current_container = next_container
     return current_container, doc_name, module_name

@@ -1,3 +1,5 @@
+from mxpy.model.util import TransactionManager
+import importlib
 from typing import List, Literal, Tuple, Optional
 from pydantic import BaseModel, Field
 from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType  # type: ignore
@@ -5,8 +7,8 @@ from Mendix.StudioPro.ExtensionsAPI.Model.Constants import IConstant  # type: ig
 from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule, IFolder, IFolderBase  # type: ignore
 import clr
 
-from mxpy.model.folder import ensure_folder
-from mxpy.model.util import TransactionManager
+from mxpy.model import folder as _folder
+importlib.reload(_folder)
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 # 导入所需的Mendix API类
 
@@ -50,7 +52,7 @@ def create_demo_input():
             ExposedToClient=True
         ),
         ConstantRequest(
-            FullPath="MyFirstModule/MyFolder1/MyFolder2/IsDebugMode",  # 中间有两个文件夹
+            FullPath="MySecondModule/MyFolder1/MyFolder2/IsDebugMode",  # 中间有两个文件夹
             DataType="Boolean",
             DefaultValue="true",
             ExposedToClient=False
@@ -63,7 +65,7 @@ demo_json = """
 {
 "requests": [
     {
-        "FullPath": "MyFirstModule/MyFolder1/MyFolder2/IsDebugMode",
+        "FullPath": "MySecondModule/MyFolder1/MyFolder2/IsDebugMode",
         "DataType": "Boolean",
         "DefaultValue": "true",
         "ExposedToClient": false
@@ -93,7 +95,7 @@ async def create_constants_with_demo(current_app, demo_input: CreateConstantsToo
         with TransactionManager(current_app, f"Create Constant {request.full_path}"):
             try:
                 # 确保文件夹路径存在，并获取父容器、文档名和模块名
-                parent_container, constant_name, module_name = ensure_folder(
+                parent_container, constant_name, module_name = _folder.ensure_folder(
                     current_app, request.full_path)
 
                 # 如果 ensure_folder 返回 None，说明有错误，跳过此请求
