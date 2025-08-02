@@ -9,8 +9,8 @@ from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType
 from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule, IFolder
 
 # 导入共享的 MCP 实例和 Mendix 上下文
-from tool_registry import mcp
-import mendix_context as ctx # 使用别名以方便访问
+from ..tool_registry import mcp
+from .. import mendix_context as ctx # 使用别名以方便访问
 
 
 # --- Pydantic 输入模型 ---

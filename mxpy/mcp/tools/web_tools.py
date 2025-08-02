@@ -2,7 +2,7 @@
 
 import mcp.types as types
 from mcp.shared._httpx_utils import create_mcp_http_client
-from tool_registry import mcp # 导入共享的 MCP 实例
+from ..tool_registry import mcp # 导入共享的 MCP 实例
 
 # --- 业务逻辑函数 ---
 async def fetch_website(url: str) -> list[types.ContentBlock]:
