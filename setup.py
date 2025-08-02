@@ -6,7 +6,11 @@ setup(
     packages=find_packages(),
     namespace_packages=['mxpy'],
     python_requires='>=3.6',
-    install_requires=[],
+    install_requires=[
+        'starlette>=0.20.0',
+        'uvicorn>=0.15.0',
+        'requests>=2.25.0',
+    ],
     extras_require={
         'dev': [
             'pytest>=6.0.0',
