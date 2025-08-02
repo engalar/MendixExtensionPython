@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 name = "mxpy"  # The name used on PyPI
 version = "1.0.0"
 authors = [
-  { name="wengao liu", email="liuwengao@foxmail.com, engalar@gmail.com" },
+  { name="wengao liu", email="engalar@gmail.com" },
 ]
 description = "A mendix extension library implement mcp server."
 readme = "README.md"
