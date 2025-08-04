@@ -10,6 +10,7 @@ from typing import Annotated
 importlib.reload(_folder)
 
 
+# fullPaths: Annotated[list(str), Field(description="A list of full paths to create folders")]
 @mcp.tool(
     name="create_folders",
     description="Ensure folder exists, if not create it"
@@ -17,5 +18,5 @@ importlib.reload(_folder)
 async def create_mendix_folders(fullPaths: Annotated[list[str], Field(description="A folder name to ensure exist, {ModuleName}/{Folder1Name}/{Folder2Name} or {ModuleName}/{Folder1Name}, Module is also a folder")]) -> str:
     with TransactionManager(ctx.CurrentApp, 'create list folder') as tx:
         for path in fullPaths:
-            _folder.ensure_folder(ctx.CurrentApp, f'{path}/__placeholder__')# make fuction ensure_folder happy
+            _folder.ensure_folder(ctx.CurrentApp, path)
     return 'create success'
