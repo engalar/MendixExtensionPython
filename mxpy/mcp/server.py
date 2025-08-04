@@ -30,7 +30,7 @@ async def run_async_server(freePort: int):
     # import json
     # jsonString = json.dumps([t.inputSchema for t in ts], indent=4)
     # ctx.messageBoxService.ShowInformation(
-    #     "MCP Loaded {len(ts)} tools ", f"{jsonString}")
+    #     f"MCP Loaded {len(ts)} tools ", f"{jsonString}")
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette):

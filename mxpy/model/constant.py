@@ -61,31 +61,6 @@ def create_demo_input():
     return CreateConstantsToolInput(requests=demo_constants)
 
 
-demo_json = """
-{
-"requests": [
-    {
-        "FullPath": "MySecondModule/MyFolder1/MyFolder2/IsDebugMode",
-        "DataType": "Boolean",
-        "DefaultValue": "true",
-        "ExposedToClient": false
-    },
-    {
-        "FullPath": "MyFirstModule/MyFolder1/MaxRetries",
-        "DataType": "Integer",
-        "DefaultValue": "3",
-        "ExposedToClient": true
-    },
-    {
-        "FullPath": "MyFirstModule/API_Key",
-        "DataType": "String",
-        "DefaultValue": "sk-demo-api-key-12345",
-        "ExposedToClient": true
-    }
-]}
-"""
-
-
 async def create_constants_with_demo(current_app, demo_input: CreateConstantsToolInput):
     """
     遍历请求列表，并使用重构后的 ensure_folder 方法创建常量。
