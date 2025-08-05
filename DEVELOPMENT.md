@@ -7,7 +7,7 @@ This project provides Python extensions for Mendix Studio Pro, allowing develope
 ## Project Structure
 
 ```
-mxpy/
+pymx/
 ├── context.py              # Global context access
 ├── document.py             # Document object model for content read/write and listening
 ├── ide/                    # IDE interaction core logic
@@ -38,7 +38,7 @@ mxpy/
 
 To add a new tool to the MCP server:
 
-1. Create a new Python file in [mxpy/mcp/tools/](file:///d:/gh/MendixExtensionPython/mxpy/mcp/tools) directory (e.g., `mendix_yourtool.py`)
+1. Create a new Python file in [pymx/mcp/tools/](file:///d:/gh/MendixExtensionPython/pymx/mcp/tools) directory (e.g., `mendix_yourtool.py`)
 2. Import the shared MCP instance:
    ```python
    from ..tool_registry import mcp
@@ -87,4 +87,4 @@ pip install -e .
 
 ## Debugging
 
-To enable more verbose logging, modify the logging configuration in [server.py](file:///d:/gh/MendixExtensionPython/mxpy/mcp/server.py).
+To enable more verbose logging, modify the logging configuration in [server.py](file:///d:/gh/MendixExtensionPython/pymx/mcp/server.py).

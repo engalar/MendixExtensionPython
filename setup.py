@@ -1,10 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mxpy",
+    name="pymx",
     version="1.2.1",
     packages=find_packages(),
-    namespace_packages=['mxpy'],
+    namespace_packages=['pymx'],
     python_requires='>=3.6',
     install_requires=[
         'starlette>=0.20.0',

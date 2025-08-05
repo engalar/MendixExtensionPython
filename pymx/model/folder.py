@@ -3,7 +3,7 @@ from typing import List, Literal, Tuple, Optional
 
 import clr
 
-from mxpy.model import module as _module
+from pymx.model import module as _module
 import importlib
 importlib.reload(_module)
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")

@@ -22,7 +22,25 @@ def run_server_blocking(
     microflowActivititesService,
     microflowExpressionService,
     microflowService,
-    untypedModelAccessService
+    untypedModelAccessService,
+    dockingWindowService,
+    domainModelService,
+    backgroundJobService,
+    configurationService,
+    extensionFeaturesService,
+    httpClientService,
+    nameValidationService,
+    navigationManagerService,
+    pageGenerationService,
+    appService,
+    dialogService,
+    entityService,
+    findResultsPaneService,
+    localRunConfigurationsService,
+    notificationPopupService,
+    runtimeService,
+    selectorDialogService,
+    versionControlService
 ):
     """
     这是 C# 调用的唯一函数。
@@ -38,9 +56,27 @@ def run_server_blocking(
             microflowActivititesService,
             microflowExpressionService,
             microflowService,
-            untypedModelAccessService
+            untypedModelAccessService,
+            dockingWindowService,
+            domainModelService,
+            backgroundJobService,
+            configurationService,
+            extensionFeaturesService,
+            httpClientService,
+            nameValidationService,
+            navigationManagerService,
+            pageGenerationService,
+            appService,
+            dialogService,
+            entityService,
+            findResultsPaneService,
+            localRunConfigurationsService,
+            notificationPopupService,
+            runtimeService,
+            selectorDialogService,
+            versionControlService
         )
-        from mxpy.mcp import server
+        from pymx.mcp import server
         importlib.reload(server)
 
         # 2. 运行异步服务器

@@ -17,7 +17,7 @@ async def run_async_server(freePort: int):
     异步主函数，配置并运行 uvicorn 服务器。
     """
 
-    from mxpy.mcp import tool_registry
+    from pymx.mcp import tool_registry
     importlib.reload(tool_registry)
     # 关键：导入 'tools' 包以触发 __init__.py 中的动态加载
     from . import tools

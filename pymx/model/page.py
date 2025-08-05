@@ -1,8 +1,8 @@
 import traceback
 import clr
 import importlib
-from mxpy.model.util import TransactionManager
-from mxpy.model import folder as _folder
+from pymx.model.util import TransactionManager
+from pymx.model import folder as _folder
 from Mendix.StudioPro.ExtensionsAPI.Model.Pages import IPage  # type: ignore
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 

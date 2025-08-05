@@ -3,10 +3,10 @@ import traceback
 import clr
 from System import ValueTuple, String  # type: ignore
 import importlib
-from mxpy.model.util import TransactionManager
-from mxpy.model import folder as _folder
-from mxpy.model import module as _module
-from mxpy.model.dto import type_micrflow
+from pymx.model.util import TransactionManager
+from pymx.model import folder as _folder
+from pymx.model import module as _module
+from pymx.model.dto import type_micrflow
 from typing import Optional
 from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (  # type: ignore
     IMicroflow, MicroflowReturnValue

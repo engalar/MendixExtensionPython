@@ -36,7 +36,7 @@
 ### 项目结构
 
 ```
-mxpy/
+pymx/
 ├── context.py              # 全局上下文访问
 ├── document.py             # 文档对象模型，用于内容读写和监听
 ├── ide/                    # IDE 交互核心逻辑
@@ -55,14 +55,31 @@ mxpy/
 
 详细使用说明请参阅以下资源：
 
+### 资源
+
 - [YouTube 教程](https://www.youtube.com/watch?v=JHl0or4aRYU)
 - [哔哩哔哩教程](https://www.bilibili.com/video/BV1GNtJzfE3W)
+
+### 操作过程
+
+- 打开项目(需要开启扩展--enable-extension-development)
+
+```powershell
+&"D:\Program Files\Mendix\10.24.1.74050\modeler\studiopro.exe" --enable-extension-development "D:\Users\Wengao.Liu\Mendix\App\App.mpr"
+```
+
+- 安装python 3.11 或更高版本
+- 安装依赖包 pip install pymx
+- 安装 extension mcp server 扩展
+- 启动 MCP 服务
+- 配置 vscode mcp
+- 使用
 
 ## 添加新工具
 
 向 MCP 服务器添加新工具：
 
-1. 在 `mxpy/mcp/tools/` 目录下创建新的 Python 文件 (例如 `mendix_yourtool.py`)
+1. 在 `pymx/mcp/tools/` 目录下创建新的 Python 文件 (例如 `mendix_yourtool.py`)
 2. 导入共享的 MCP 实例：
    ```python
    from ..tool_registry import mcp

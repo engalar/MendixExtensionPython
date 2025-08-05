@@ -4,7 +4,7 @@ from .. import mendix_context as ctx
 from ..tool_registry import mcp
 import importlib
 
-from mxpy.model import microflow
+from pymx.model import microflow
 importlib.reload(microflow)
 
 # 取消下面的注释以显示输入数据结构的 JSON 示例
@@ -29,7 +29,7 @@ async def create_mendix_microflows(data: microflow.CreateMicroflowsToolInput) ->
     Returns:
         一个详细的字符串报告，说明了每个请求的处理过程和最终结果。
     """
-    # 将整个流程委托给 mxpy.model.microflow 模块中的 create_microflows 函数。
+    # 将整个流程委托给 pymx.model.microflow 模块中的 create_microflows 函数。
     # 这种方式将工具的定义（本文件）与具体的实现逻辑（microflow.py）解耦。
     # ctx.CurrentApp 提供了对当前 Mendix Studio Pro App 实例的访问。
     report = await microflow.create_microflows(ctx, data)

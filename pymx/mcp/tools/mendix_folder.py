@@ -1,11 +1,11 @@
-from mxpy.model.util import TransactionManager
+from pymx.model.util import TransactionManager
 from .. import mendix_context as ctx
 from ..tool_registry import mcp
 import importlib
 from pydantic import Field
 
 # 导入包含核心逻辑和 Pydantic 数据模型的模块
-from mxpy.model import folder as _folder
+from pymx.model import folder as _folder
 from typing import Annotated
 importlib.reload(_folder)
 

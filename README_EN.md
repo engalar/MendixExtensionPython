@@ -35,7 +35,7 @@ For development setup, refer to [DEVELOPMENT.md](DEVELOPMENT.md):
 ### Project Structure
 
 ```
-mxpy/
+pymx/
 ├── context.py              # Global context access
 ├── document.py             # Document object model for content read/write and listening
 ├── ide/                    # IDE interaction core logic
@@ -61,7 +61,7 @@ For detailed usage instructions, see the following resources:
 
 To add a new tool to the MCP server:
 
-1. Create a new Python file in the `mxpy/mcp/tools/` directory (e.g., `mendix_yourtool.py`)
+1. Create a new Python file in the `pymx/mcp/tools/` directory (e.g., `mendix_yourtool.py`)
 2. Import the shared MCP instance:
    ```python
    from ..tool_registry import mcp

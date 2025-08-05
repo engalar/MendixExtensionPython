@@ -1,7 +1,7 @@
 # https://aistudio.google.com/prompts/1ntnBFfv51uT4HBbYRhVLjDLx7N_oKiUQ
 
-from mxpy.model import module as _module
-from mxpy.model.util import TransactionManager
+from pymx.model import module as _module
+from pymx.model.util import TransactionManager
 from Mendix.StudioPro.ExtensionsAPI.Model.Enumerations import IEnumeration  # type: ignore
 from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule  # type: ignore
 from Mendix.StudioPro.ExtensionsAPI.Model.DomainModels import (  # type: ignore

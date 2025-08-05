@@ -8,8 +8,8 @@ import clr
 import importlib
 import traceback
 
-from mxpy.model import folder as _folder
-from mxpy.model.util import TransactionManager
+from pymx.model import folder as _folder
+from pymx.model.util import TransactionManager
 
 importlib.reload(_folder)
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")

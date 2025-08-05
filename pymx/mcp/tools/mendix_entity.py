@@ -5,7 +5,7 @@ from ..tool_registry import mcp
 import importlib
 
 # 导入包含核心逻辑和 Pydantic 数据模型的模块
-from mxpy.model import entity
+from pymx.model import entity
 importlib.reload(entity)
 
 # --- 工具定义 ---
@@ -31,7 +31,7 @@ async def create_mendix_entities(data: entity.CreateEntitiesToolInput) -> str:
     Returns:
         一个详细的字符串报告，说明了每个请求的处理过程和最终结果。
     """
-    # 将整个流程委托给 mxpy.model.entity 模块中的 create_entities 函数。
+    # 将整个流程委托给 pymx.model.entity 模块中的 create_entities 函数。
     # 这种方式将工具的定义（本文件）与具体的实现逻辑（entity.py）解耦。
     # ctx.CurrentApp 提供了对当前 Mendix Studio Pro App 实例的访问。
     report = await entity.create_entities(ctx.CurrentApp, data)

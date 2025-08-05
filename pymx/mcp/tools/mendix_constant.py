@@ -8,8 +8,8 @@ from typing import List, Literal
 from Mendix.StudioPro.ExtensionsAPI.Model.Constants import IConstant  # type: ignore
 from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType  # type: ignore
 from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule, IFolder  # type: ignore
-from mxpy.model import constant
-# from mxpy.model.constant import CreateConstantsToolInput, create_constants_with_demo
+from pymx.model import constant
+# from pymx.model.constant import CreateConstantsToolInput, create_constants_with_demo
 
 importlib.reload(constant)
 

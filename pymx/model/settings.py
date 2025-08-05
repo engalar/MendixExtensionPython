@@ -12,7 +12,7 @@ from Mendix.StudioPro.ExtensionsAPI.Model.Constants import (  # type: ignore
 import clr
 import traceback
 from typing import List, Optional, Any
-from mxpy.model.util import TransactionManager
+from pymx.model.util import TransactionManager
 
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 

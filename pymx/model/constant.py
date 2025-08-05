@@ -1,4 +1,4 @@
-from mxpy.model.util import TransactionManager
+from pymx.model.util import TransactionManager
 import importlib
 from typing import List, Literal, Tuple, Optional
 from pydantic import BaseModel, Field
@@ -7,7 +7,7 @@ from Mendix.StudioPro.ExtensionsAPI.Model.Constants import IConstant  # type: ig
 from Mendix.StudioPro.ExtensionsAPI.Model.Projects import IModule, IFolder, IFolderBase  # type: ignore
 import clr
 
-from mxpy.model import folder as _folder
+from pymx.model import folder as _folder
 importlib.reload(_folder)
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 # 导入所需的Mendix API类

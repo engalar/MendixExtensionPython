@@ -3,12 +3,12 @@ from ..tool_registry import mcp
 import importlib
 
 # 导入包含枚举核心逻辑和 Pydantic 数据模型的模块
-from mxpy.model import enum
+from pymx.model import enum
 importlib.reload(enum)
 
 # --- 工具定义 ---
 # @mcp.tool 装饰器将这个函数注册为一个可由 MCP 调用的工具。
-# 它遵循了将工具定义与实现分离的模式，核心逻辑位于 mxpy.model 目录中。
+# 它遵循了将工具定义与实现分离的模式，核心逻辑位于 pymx.model 目录中。
 
 # 取消下面的注释以显示输入数据结构的 JSON 示例
 # ctx.messageBoxService.ShowInformation(
@@ -30,7 +30,7 @@ async def create_mendix_enumerations(data: enum.CreateEnumerationsToolInput) -> 
     Returns:
         一个详细的字符串报告，说明了每个请求的处理过程和最终结果。
     """
-    # 将整个流程委托给 mxpy.model.enum 模块中的 create_enumerations 函数。
+    # 将整个流程委托给 pymx.model.enum 模块中的 create_enumerations 函数。
     # 这种方式将工具的定义（本文件）与具体的实现逻辑（enum.py）解耦。
     # ctx.CurrentApp 提供了对当前 Mendix Studio Pro App 实例的访问。
     report = await enum.create_enumerations(ctx.CurrentApp, data)
