@@ -23,3 +23,7 @@ activeDocument.content = "监听后的内容"  # 这里会触发 callback
 activeDocument.remove_listener(callback)  # 移除监听器
 activeDocument.content = "移除监听后的内容"  # 这里不会触发 callback
 ```
+
+## agent prompt
+use kb.md as knowledge base
+use '用工具创建模型' as prompt

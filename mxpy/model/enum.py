@@ -31,7 +31,7 @@ class EnumValue(BaseModel):
 class EnumerationRequest(BaseModel):
     """定义了创建单个枚举的完整请求。"""
     full_path: str = Field(..., alias="FullPath",
-                           description="枚举的完整路径，例如 'MyModule.MyEnumeration' 或 'MyModule/SubFolder/MyEnumeration'。")
+                           description="枚举的完整路径，例如 'MyModule/MyEnumeration' 或 'MyModule/SubFolder/MyEnumeration'。")
     values: List[EnumValue] = Field(..., alias="Values", description="枚举值的列表。")
 
     class Config:
