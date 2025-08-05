@@ -1,0 +1,27 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymx"  # The name used on PyPI
+version = "1.2.1"
+authors = [
+  { name="wengao liu", email="engalar@gmail.com" },
+]
+description = "A mendix extension library implement mcp server."
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    # "requests>=2.20.0",  # Add any external dependencies here
+]
+
+[project.urls]
+Homepage = "https://github.com/your-username/my-awesome-lib"
+"Bug Tracker" = "https://github.com/your-username/my-awesome-lib/issues"

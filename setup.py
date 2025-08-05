@@ -2,11 +2,15 @@ from setuptools import setup, find_packages
 
 setup(
     name="mxpy",
-    version="0.1.0",
+    version="1.2.1",
     packages=find_packages(),
     namespace_packages=['mxpy'],
     python_requires='>=3.6',
-    install_requires=[],
+    install_requires=[
+        'starlette>=0.20.0',
+        'uvicorn>=0.15.0',
+        'requests>=2.25.0',
+    ],
     extras_require={
         'dev': [
             'pytest>=6.0.0',
