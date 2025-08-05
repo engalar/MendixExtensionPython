@@ -6,6 +6,8 @@ import importlib
 
 from pymx.model import microflow
 importlib.reload(microflow)
+from pymx.model.dto import type_micrflow
+importlib.reload(type_micrflow)
 
 # 取消下面的注释以显示输入数据结构的 JSON 示例
 # ctx.messageBoxService.ShowInformation(
@@ -16,7 +18,7 @@ importlib.reload(microflow)
     name="ensure_microflows",
     description="根据请求列表在 Mendix 应用模型中创建或更新一个或多个微流，包括其参数和返回类型。"
 )
-async def create_mendix_microflows(data: microflow.CreateMicroflowsToolInput) -> str:
+async def create_mendix_microflows(data: type_micrflow.CreateMicroflowsToolInput) -> str:
     """
     接收一个包含微流创建请求的列表，并调用核心逻辑来处理它们。
     该函数作为 Mendix 工具定义和核心业务逻辑之间的桥梁。
