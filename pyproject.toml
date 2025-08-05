@@ -19,9 +19,17 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    # "requests>=2.20.0",  # Add any external dependencies here
+    'starlette>=0.27.0',
+    'uvicorn>=0.23.2',
+    'requests>=2.31.0',
+    'pythonnet==3.0.5',
+    'anyio==4.9.0',
+    "pydantic>=2.11.1",
+    "typing_extensions==4.13.0",
+    "mcp==1.12.2",
+    "sse_starlette==1.6.5",
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-username/my-awesome-lib"
-"Bug Tracker" = "https://github.com/your-username/my-awesome-lib/issues"
+Homepage = "https://github.com/engalar/MendixExtensionPython"
+"Bug Tracker" = "https://github.com/engalar/MendixExtensionPython/issues"
