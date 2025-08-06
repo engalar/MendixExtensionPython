@@ -6,7 +6,7 @@ import importlib
 from pymx.model.util import TransactionManager
 from pymx.model import folder as _folder
 from pymx.model import module as _module
-from pymx.model.dto import type_micrflow
+from pymx.model.dto import type_microflow
 from typing import Optional
 from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (  # type: ignore
     IMicroflow, MicroflowReturnValue
@@ -20,10 +20,10 @@ clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 # 确保所有依赖的模块都是最新的
 importlib.reload(_module)
 importlib.reload(_folder)
-importlib.reload(type_micrflow)
+importlib.reload(type_microflow)
 
 
-def _create_data_type(current_app, type_info: type_micrflow.DataTypeDefinition) -> Optional[DataType]:
+def _create_data_type(current_app, type_info: type_microflow.DataTypeDefinition) -> Optional[DataType]:
     type_name = type_info.type_name.lower()
 
     if type_name == "string":
@@ -51,7 +51,7 @@ def _create_data_type(current_app, type_info: type_micrflow.DataTypeDefinition) 
     raise ValueError(f"不支持的数据类型 '{type_name}'。")
 
 
-async def create_microflows(ctx, tool_input: type_micrflow.CreateMicroflowsToolInput) -> str:
+async def create_microflows(ctx, tool_input: type_microflow.CreateMicroflowsToolInput) -> str:
     """
     遍历微流创建请求，创建或更新它们，并返回一个纯文本报告。
     """
