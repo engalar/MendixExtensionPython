@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pymx"  # The name used on PyPI
-version = "1.2.3"
+version = "1.3.1"
 authors = [
   { name="wengao liu", email="engalar@gmail.com" },
 ]
