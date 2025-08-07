@@ -23,7 +23,7 @@
 
 开发环境搭建请参考 [DEVELOPMENT.md](DEVELOPMENT.md)：
 
-1. 安装 Python 3.11 或更高版本
+1. 安装 Python 3.11 或更高版本，正常会自动检测，也可以用环境变量`PYTHONNET_PYDLL`来手动指定
 2. 安装所需依赖：
    ```bash
    pip install -e .
@@ -32,6 +32,11 @@
    ```bash
    pip install -e ".[dev]"
    ```
+
+## troubleshooting
+
+Help->Open Log File Directory-> log.txt
+复制内容发给开发者定位问题
 
 ### 项目结构
 
@@ -68,7 +73,7 @@ pymx/
 &"D:\Program Files\Mendix\10.24.1.74050\modeler\studiopro.exe" --enable-extension-development "D:\Users\Wengao.Liu\Mendix\App\App.mpr"
 ```
 
-- 安装python 3.11 或更高版本
+- 安装 python 3.11 或更高版本
 - 安装依赖包 pip install pymx
 - 安装 extension mcp server 扩展
 - 启动 MCP 服务

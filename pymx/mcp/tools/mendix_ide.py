@@ -1,21 +1,21 @@
 from pymx.model.util import TransactionManager
-from .. import mendix_context as ctx
-from ..tool_registry import mcp
+from pymx.mcp import mendix_context as ctx
+from pymx.mcp.tool_registry import mcp
 import importlib
 from pydantic import Field
 
 # 导入包含核心逻辑和 Pydantic 数据模型的模块
-from pymx.model import folder as _folder
+from pymx.ide import editor as _editor
 from typing import Annotated
-importlib.reload(_folder)
 
-# 
-# @mcp.tool(
-#     name="open_document",
-#     description="open specific document in studio pro"
-# )
-# async def create_mendix_folders(fullPaths: Annotated[list[str], Field(description="A folder name to ensure exist, {ModuleName}/{Folder1Name}/{Folder2Name} or {ModuleName}/{Folder1Name}, Module is also a folder")]) -> str:
-#     with TransactionManager(ctx.CurrentApp, 'create list folder') as tx:
-#         for path in fullPaths:
-#             _folder.ensure_folder(ctx.CurrentApp, path+'/_')
-#     return 'create success'
+
+@mcp.tool(
+    name="open_document",
+    description="open specific document in studio pro"
+)
+async def open_document(qualifiedName: Annotated[str, Field(description="qulified name of the document to open")]
+                        # , elementName: Annotated[str, Field(description='element name to focus after document open')]
+                        ) -> str:
+    importlib.reload(_editor)
+    success, reports = _editor.open_document(ctx, qualifiedName, None)
+    return "\n".join(reports)
