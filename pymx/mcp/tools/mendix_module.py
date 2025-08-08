@@ -29,7 +29,7 @@ async def ensure_mendix_modules(names: Annotated[list[str], Field(description="A
     return 'ensure success'
 
 
-@mcp.resource("model://project/info", description="mendix project info include module name", mime_type="application/json")
+@mcp.resource("model://info.mxproject.json", description="mendix project info include module name", mime_type="application/json")
 def model_project_resource() -> str:
     """mendix project info"""
     reports = []
@@ -41,7 +41,7 @@ def model_project_resource() -> str:
 # module domain resource
 
 
-@mcp.resource("model://module/{module_name}/domain", description="list all entity in specific module domain", mime_type="application/json")
+@mcp.resource("model://module/{module_name}.mxdomain.json", description="list all entity in specific module domain", mime_type="application/json")
 def model_module_resource(module_name: str) -> str:
     """list all entity in specific module"""
     importlib.reload(util)
