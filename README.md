@@ -70,7 +70,7 @@ pymx/
 - 打开项目(需要开启扩展--enable-extension-development)
 
 ```powershell
-&"D:\Program Files\Mendix\10.24.1.74050\modeler\studiopro.exe" --enable-extension-development "D:\Users\Wengao.Liu\Mendix\App\App.mpr"
+&"D:\Program Files\Mendix\10.24.2.75382\modeler\studiopro.exe" --enable-extension-development "D:\Users\Wengao.Liu\Mendix\App\App.mpr"
 ```
 
 - 安装 python 3.11 或更高版本
