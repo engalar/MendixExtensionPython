@@ -1,5 +1,3 @@
-# /your_python_script_folder/tool_registry.py
-
 from mcp.server.fastmcp import FastMCP
 import asyncio
 
@@ -13,7 +11,5 @@ AppStatus.should_exit_event = asyncio.Event()
 # 我们在这里创建唯一的、共享的 FastMCP 实例。
 # 所有工具模块都将从这里导入它，并使用 @mcp.tool 装饰器进行注册。
 mcp = FastMCP(
-    "mendix-modular-copilot",
-    # 我们告诉 FastMCP 使用哪种传输方式，它会据此配置其内部的 Starlette app
-    transport="streamable-http"
+    "mendix-modular-copilot"
 )
