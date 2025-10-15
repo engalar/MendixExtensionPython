@@ -3,6 +3,7 @@ import subprocess
 import logging
 import shutil
 import json
+import sys
 import tarfile
 from pathlib import Path
 from typing import Dict, Any
@@ -10,6 +11,25 @@ from typing import Dict, Any
 # 配置日志记录器
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def execute_silent(command, cwd=None, timeout=None, check=True):
+    """Executes a command silently, capturing stdout and stderr."""
+    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        return subprocess.run(
+            command, capture_output=True, text=True, check=check,
+            cwd=cwd, creationflags=creation_flags, timeout=timeout
+        )
+    except subprocess.CalledProcessError as e:
+        # Provide more context by including stderr in the exception message
+        error_details = e.stderr.strip() if e.stderr else e.stdout.strip()
+        raise Exception(
+            f"Command '{' '.join(command)}' failed with exit code {e.returncode}: {error_details}")
+    except FileNotFoundError:
+        raise Exception(
+            f"Command not found: {command[0]}. Is Git installed and in your PATH?")
+    except subprocess.TimeoutExpired:
+        raise Exception(f"Command '{' '.join(command)}' timed out.")
+    
 class WorkspaceManager:
     """负责管理临时工作目录的创建和清理。"""
     def __init__(self, repo_path: str):
@@ -57,22 +77,19 @@ class GitService:
         file_path_in_repo = "mprcontents/mprname"
         command = [
             "git",
-            "-C", str(self.repo_path),
             "show",
             f"{commit_id}:{file_path_in_repo}"
         ]
         logging.info(f"Attempting to read '{file_path_in_repo}' from commit '{commit_id[:7]}'")
-        try:
-            result = subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8')
-            mpr_name = result.stdout.strip()
-            if not mpr_name.endswith(".mpr"):
-                raise ValueError(f"Content of 'mprname' ('{mpr_name}') is not a valid .mpr file name.")
-            logging.info(f"Discovered MPR file name: '{mpr_name}'")
-            return mpr_name
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to read '{file_path_in_repo}' from commit '{commit_id}'. It might not exist in this commit.")
-            logging.error(f"Stderr: {e.stderr}")
-            raise FileNotFoundError(f"Could not find '{file_path_in_repo}' in commit '{commit_id}'.")
+        
+        result = execute_silent(command, cwd=str(self.repo_path))
+        
+        mpr_name = result.stdout.strip()
+        if not mpr_name.endswith(".mpr"):
+            raise ValueError(f"Content of 'mprname' ('{mpr_name}') is not a valid .mpr file name.")
+        
+        logging.info(f"Discovered MPR file name: '{mpr_name}'")
+        return mpr_name
 
     def extract_model_files(self, commit_id: str, target_dir: Path, mpr_file_name: str):
         """
@@ -91,8 +108,16 @@ class GitService:
         
         logging.info(f"Executing git archive for commit '{commit_id[:7]}' into '{target_dir}'...")
         try:
+            # 在 Windows 上隐藏命令窗口
+            creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0 # <--- 新增
+            
             # 启动 git archive 进程，并将其标准输出重定向到管道
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creation_flags  # <--- 新增
+            )
 
             # 使用 tarfile 库直接从进程的输出流中解压
             with tarfile.open(fileobj=process.stdout, mode='r|*') as tar:
@@ -134,20 +159,15 @@ class MendixCliService:
         
         logging.info(f"Executing Mendix diff command...")
         logging.debug(f"Command: {' '.join(command)}")
-        try:
-            # 不使用 shell=True，因为命令和参数是列表形式，更安全
-            result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=300)
-            logging.info("Mendix diff command completed successfully.")
-            logging.info(f"Diff output saved to: {output_path}")
-            if result.stdout:
-                logging.debug(f"Mendix CLI STDOUT:\n{result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logging.error("Mendix diff command failed.")
-            logging.error(f"Stderr: {e.stderr}")
-            raise
-        except subprocess.TimeoutExpired:
-            logging.error("Mendix diff command timed out after 300 seconds.")
-            raise
+
+        # 使用 execute_silent 替换 subprocess.run。
+        # 错误处理（包括超时）由辅助函数完成，并向上抛出详细的 Exception。
+        result = execute_silent(command, timeout=300)
+        
+        logging.info("Mendix diff command completed successfully.")
+        logging.info(f"Diff output saved to: {output_path}")
+        if result.stdout:
+            logging.debug(f"Mendix CLI STDOUT:\n{result.stdout}")
 
 class DiffOrchestrator:
     """
