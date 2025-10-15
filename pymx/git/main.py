@@ -1,7 +1,7 @@
 # file: main.py
 import sys
 import pprint
-from containers import Container
+from pymx.git.containers import Container
 
 def main():
     """应用主函数。"""
@@ -10,9 +10,6 @@ def main():
     # 2. 加载配置 (可以来自文件、环境变量等)
     #    这里为了演示，直接使用字典
     container.config.from_dict({
-        "workspace": {
-            "base_dir": "D:/Users/Wengao.Liu/Mendix/CKODemo_AddressBook-main/.mendix-cache/pymx_diff"
-        },
         "git": {
             "repo_path": "D:/Users/Wengao.Liu/Mendix/CKODemo_AddressBook-main"
         },
@@ -21,7 +18,7 @@ def main():
         }
     })
 
-    container.wire(modules=[__name__])
+    # container.wire(modules=[__name__])
 
     # 定义要对比的 commit ID
     commit_old = "faf5a48891017d49b25bf00906db36b0134d9185"

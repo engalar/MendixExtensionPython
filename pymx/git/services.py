@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class WorkspaceManager:
     """负责管理临时工作目录的创建和清理。"""
-    def __init__(self, base_dir: Path):
-        self.base_dir = Path(base_dir)
+    def __init__(self, repo_path: str):
+        self.base_dir = Path(repo_path) / Path(".mendix-cache/pymx_diff")
         logging.info(f"WorkspaceManager initialized with base directory: {self.base_dir}")
 
     def setup_diff_dirs(self, old_commit: str, new_commit: str) -> Dict[str, Path]:
@@ -44,7 +44,7 @@ class WorkspaceManager:
 
 class GitService:
     """封装所有 Git 相关操作。"""
-    def __init__(self, repo_path: Path):
+    def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path)
         if not (self.repo_path / ".git").is_dir():
             raise FileNotFoundError(f"'{self.repo_path}' is not a valid Git repository.")
@@ -112,7 +112,7 @@ class GitService:
 
 class MendixCliService:
     """封装 Mendix mx.exe 命令行工具的操作。"""
-    def __init__(self, mx_exe_path: Path):
+    def __init__(self, mx_exe_path: str):
         self.mx_exe_path = Path(mx_exe_path)
         if not self.mx_exe_path.is_file():
             raise FileNotFoundError(f"Mendix executable not found at '{self.mx_exe_path}'")
@@ -158,7 +158,8 @@ class DiffOrchestrator:
     def __init__(self,
                  workspace_manager: WorkspaceManager,
                  git_service: GitService,
-                 mendix_cli_service: MendixCliService):
+                 mendix_cli_service: MendixCliService,
+                 ):
         self.workspace_manager = workspace_manager
         self.git_service = git_service
         self.mendix_cli_service = mendix_cli_service
