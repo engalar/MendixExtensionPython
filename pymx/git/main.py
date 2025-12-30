@@ -1,7 +1,7 @@
 # file: main.py
 import sys
 import pprint
-from pymx.git.containers import Container
+from pymx.git.di import Container
 
 def main():
     """应用主函数。"""
