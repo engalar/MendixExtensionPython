@@ -34,5 +34,5 @@ async def create_mendix_microflows(data: type_microflow.CreateMicroflowsToolInpu
     # 将整个流程委托给 pymx.model.microflow 模块中的 create_microflows 函数。
     # 这种方式将工具的定义（本文件）与具体的实现逻辑（microflow.py）解耦。
     # ctx.CurrentApp 提供了对当前 Mendix Studio Pro App 实例的访问。
-    report = await microflow.create_microflows(ctx, data)
+    report = microflow.create_microflows(ctx, data)
     return report

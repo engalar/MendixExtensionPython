@@ -1,153 +1,318 @@
-
 import traceback
-import clr
-from System import ValueTuple, String  # type: ignore
-import importlib
+from typing import List, Literal, Optional, Union, Dict, Callable, Any
+from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
+
+# System & Mendix Imports (Strictly limited to Reference Code)
+from System import ValueTuple, String, Array
+from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (
+    IMicroflow,
+    IActionActivity,
+    MicroflowReturnValue,
+    IHead,
+)
+from Mendix.StudioPro.ExtensionsAPI.Model.Microflows.Actions import (
+    CommitEnum,
+    ChangeActionItemType,
+    AggregateFunctionEnum,
+)
+from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType
+from Mendix.StudioPro.ExtensionsAPI.Model.Enumerations import IEnumeration, IEnumerationValue
+from Mendix.StudioPro.ExtensionsAPI.Model.DomainModels import (
+    IEntity,
+    IAttribute,
+    IAssociation,
+)
 from pymx.model.util import TransactionManager
 from pymx.model import folder as _folder
-from pymx.model import module as _module
+import importlib
 from pymx.model.dto import type_microflow
-from typing import Optional
-from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (  # type: ignore
-    IMicroflow, MicroflowReturnValue
-)
-from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType  # type: ignore
-from Mendix.StudioPro.ExtensionsAPI.Model.DomainModels import IEntity  # type: ignore
-from Mendix.StudioPro.ExtensionsAPI.Model.Enumerations import IEnumeration  # type: ignore
-clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
-
-
-# 确保所有依赖的模块都是最新的
-importlib.reload(_module)
-importlib.reload(_folder)
 importlib.reload(type_microflow)
+from pymx.model.dto.type_microflow import (
+    DataTypeDefinition,
+    MicroflowParameter,
+    BaseActivity,
+    RetrieveActivity,
+    AggregateListActivity,
+    ListOperationActivity,
+    CommitActivity,
+    ChangeActivity,
+    MicroflowRequest,
+    CreateMicroflowsToolInput,
+)
+
+# --- 3. 业务逻辑构建器 ---
+
+# ==========================================
+# PART 2: Context & Utilities
+# ==========================================
 
 
-def _create_data_type(current_app, type_info: type_microflow.DataTypeDefinition) -> Optional[DataType]:
-    type_name = type_info.type_name.lower()
 
-    if type_name == "string":
-        return DataType.String
-    if type_name == "integer":
-        return DataType.Integer
-    if type_name == "long":
-        return DataType.Long
-    if type_name == "decimal":
-        return DataType.Decimal
-    if type_name == "boolean":
-        return DataType.Boolean
-    if type_name == "datetime":
-        return DataType.DateTime
-    if type_name == "binary":
-        return DataType.Binary
-    if type_name == "void":
-        return DataType.Void
-    if type_name == "object":
-        return DataType.Object(current_app.ToQualifiedName[IEntity](type_info.qualified_name))
-    if type_name == "list":
-        return DataType.List(current_app.ToQualifiedName[IEntity](type_info.qualified_name))
-    if type_name == "enumeration":
-        return DataType.Enumeration(current_app.ToQualifiedName[IEnumeration](type_info.qualified_name))
-    raise ValueError(f"不支持的数据类型 '{type_name}'。")
+class BuilderContext:
+    """持有构建过程中的所有必要服务和状态"""
+
+    def __init__(self, global_ctx, folder):
+        self.ctx = global_ctx  # 包含 microflowActivitiesService 等
+        self.app = global_ctx.CurrentApp  # 当前 IModel (CurrentApp)
+        self.folder = folder  # 目标文件夹
+        self.utils = MendixUtils(global_ctx.CurrentApp)  # 辅助工具
 
 
-async def create_microflows(ctx, tool_input: type_microflow.CreateMicroflowsToolInput) -> str:
-    """
-    遍历微流创建请求，创建或更新它们，并返回一个纯文本报告。
-    """
-    report_lines = ["开始微流创建流程..."]
-    success_count = 0
-    failure_count = 0
-    current_app = ctx.CurrentApp
-    microflowActivititesService = ctx.microflowActivititesService
-    microflowExpressionService = ctx.microflowExpressionService
-    microflowService = ctx.microflowService
-    for i, request in enumerate(tool_input.requests):
-        report_lines.append(
-            f"\n--- 处理请求 {i+1}/{len(tool_input.requests)}: {request.full_path} ---")
+class MendixUtils:
+    """封装底层的 SDK 查找逻辑"""
 
+    def __init__(self, model):
+        self.model = model
+
+    def get_association(self, name: str) -> IAssociation:
+        obj = self.model.ToQualifiedName[IAssociation](name).Resolve()
+        if not obj:
+            raise ValueError(f"Association not found: {name}")
+        return obj
+
+    def get_entity(self, name: str) -> IEntity:
+        obj = self.model.ToQualifiedName[IEntity](name).Resolve()
+        if not obj:
+            raise ValueError(f"Entity not found: {name}")
+        return obj
+
+    def get_attribute(self, entity: IEntity, attr_name: str) -> IAttribute:
+        # 参考代码逻辑：遍历查找
+        found = next((a for a in entity.GetAttributes() if a.Name == attr_name), None)
+        if not found:
+            raise ValueError(f"Attribute '{attr_name}' not found in '{entity.Name}'")
+        return found
+
+
+# ==========================================
+# PART 3: Activity Handlers (Scalable)
+# ==========================================
+
+# 定义 Handler 函数签名: (context, activity_dto) -> List[IActionActivity]
+# 返回 List 是为了处理 "One DTO -> Multiple SDK Activities" 的情况 (如 Change)
+HandlerFunc = Callable[[BuilderContext, Any], List[IActionActivity]]
+
+
+class ActivityDispatcher:
+    """策略分发器：将 DTO 类型映射到具体的构建函数"""
+
+    def __init__(self):
+        self._handlers: Dict[str, HandlerFunc] = {}
+        self._register_defaults()
+
+    def register(self, key: str, handler: HandlerFunc):
+        self._handlers[key] = handler
+
+    def dispatch(
+        self, ctx: BuilderContext, activity_dto: BaseActivity
+    ) -> List[IActionActivity]:
+        handler = self._handlers.get(activity_dto.activity_type)
+        if not handler:
+            raise NotImplementedError(
+                f"No handler registered for activity type: {activity_dto.activity_type}"
+            )
+        return handler(ctx, activity_dto)
+
+    def _register_defaults(self):
+        # 在这里注册所有已实现的处理器
+        self.register("Retrieve", self._handle_retrieve)
+        self.register("Change", self._handle_change)
+        self.register("Commit", self._handle_commit)
+        # 扩展点：在此行下方添加 self.register("AggregateList", self._handle_aggregate)
+
+    # --- Individual Handlers (Isolated Logic) ---
+
+    def _handle_retrieve(
+        self, ctx: BuilderContext, act: RetrieveActivity
+    ) -> List[IActionActivity]:
+        assoc = ctx.utils.get_association(act.association_name)
+        # Strict adherence to Reference Code Service
+        sdk_act = (
+            ctx.ctx.microflowActivitiesService.CreateAssociationRetrieveSourceActivity(
+                ctx.app, assoc, act.output_variable, act.source_variable
+            )
+        )
+        return [sdk_act]
+
+    def _handle_commit(
+        self, ctx: BuilderContext, act: CommitActivity
+    ) -> List[IActionActivity]:
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateCommitObjectActivity(
+            ctx.app, act.variable_name, act.refresh_client, False
+        )
+        return [sdk_act]
+
+    def _handle_change(
+        self, ctx: BuilderContext, act: ChangeActivity
+    ) -> List[IActionActivity]:
+        # Logic: Convert 1 DTO into N Activities (because the Service handles 1 attr at a time)
+        entity = ctx.utils.get_entity(act.entity_name)
+        result_acts = []
+
+        commit_enum = CommitEnum.No
+        if act.commit == "Yes":
+            commit_enum = CommitEnum.Yes
+        elif act.commit == "YesWithoutEvents":
+            commit_enum = CommitEnum.YesWithoutEvents
+
+        for item in act.changes:
+            attr = ctx.utils.get_attribute(entity, item.attribute_name)
+            val_expr = ctx.ctx.microflowExpressionService.CreateFromString(
+                item.value_expression
+            )
+
+            # Use Service from Reference Code
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeAttributeActivity(
+                ctx.app,
+                attr,
+                ChangeActionItemType.Set,
+                val_expr,
+                act.variable_name,
+                commit_enum,
+            )
+            result_acts.append(sdk_act)
+
+        return result_acts
+
+
+# Global Dispatcher Instance
+_dispatcher = ActivityDispatcher()
+
+# ==========================================
+# PART 4: Main Builder Logic
+# ==========================================
+
+
+class MicroflowBuilder:
+    def __init__(self, ctx: BuilderContext, request: MicroflowRequest):
+        self.ctx = ctx
+        self.req = request
+        self.mf: Optional[IMicroflow] = None
+    def _create_data_type(self, type_info: type_microflow.DataTypeDefinition) -> Optional[DataType]:
+        type_name = type_info.type_name.lower()
+
+        if type_name == "string":
+            return DataType.String
+        if type_name == "integer":
+            return DataType.Integer
+        if type_name == "long":
+            return DataType.Long
+        if type_name == "decimal":
+            return DataType.Decimal
+        if type_name == "boolean":
+            return DataType.Boolean
+        if type_name == "datetime":
+            return DataType.DateTime
+        if type_name == "binary":
+            return DataType.Binary
+        if type_name == "void":
+            return DataType.Void
+        if type_name == "object":
+            return DataType.Object(self.ctx.app.ToQualifiedName[IEntity](type_info.qualified_name))
+        if type_name == "list":
+            return DataType.List(self.ctx.app.ToQualifiedName[IEntity](type_info.qualified_name))
+        if type_name == "enumeration":
+            return DataType.Enumeration(self.ctx.app.ToQualifiedName[IEnumeration](type_info.qualified_name))
+        raise ValueError(f"不支持的数据类型 '{type_name}'。")
+    def build(self):
+        """Orchestrates the creation of the Microflow"""
+        # 1. Shell (Header/Params)
+        self.mf = self._build_shell()
+
+        # 2. Body (Activities)
+        self._build_body()
+
+        return self.mf
+
+    def _build_shell(self) -> IMicroflow:
+        mf_name = self.req.full_path.split("/")[-1]
+        module_name = self.req.full_path.split("/")[0]
+
+        # 1. 准备参数和返回类型
+        params = [
+            ValueTuple.Create[String, DataType](p.name, self._create_data_type(p.type))
+            for p in self.req.parameters
+        ]
+        return_type = self._create_data_type(self.req.return_type)
+
+        # 2. 查找或创建
+        existing = next(
+            (m for m in self.ctx.folder.GetDocuments() if m.Name == mf_name), None
+        )
+
+        if existing:
+            self.mf = self.ctx.app.ToQualifiedName[IMicroflow](
+                f"{module_name}.{mf_name}"
+            ).Resolve()
+            self.mf.ReturnType = return_type
+            self.ctx.ctx.microflowService.Initialize(self.mf, params)
+        else:
+            if self.req.return_exp:
+                ret_exp = self.ctx.ctx.microflowExpressionService.CreateFromString(
+                    self.req.return_exp
+                )
+                ret_val = MicroflowReturnValue(return_type, ret_exp)
+            else:
+                ret_val = MicroflowReturnValue(
+                    return_type,
+                    self.ctx.ctx.microflowExpressionService.CreateFromString("empty"),
+                )
+
+            self.mf = self.ctx.ctx.microflowService.CreateMicroflow(
+                self.ctx.app, self.ctx.folder, mf_name, ret_val, params
+            )
+
+        return self.mf
+
+    def _build_body(self):
+        if not self.req.activities:
+            return
+
+        # Container for all generated SDK activities
+        all_sdk_activities: List[IActionActivity] = []
+
+        # Loop through DTOs -> Delegate to Dispatcher -> Collect SDK Objects
+        for act_dto in self.req.activities:
+            generated_acts = _dispatcher.dispatch(self.ctx, act_dto)
+            all_sdk_activities.extend(generated_acts)
+
+        # Insertion Strategy (Reverse order for 'TryInsertAfterStart' based on RefCode)
+        if all_sdk_activities:
+            csharp_array = Array[IActionActivity](all_sdk_activities[::-1])
+            self.ctx.ctx.microflowService.TryInsertAfterStart(self.mf, csharp_array)
+
+
+# --- 4. 主入口 ---
+
+
+def create_microflows(ctx, tool_input: CreateMicroflowsToolInput, tx=None) -> str:
+    report = ["Starting..."]
+
+    for req in tool_input.requests:
+        if tx:
+            _do_create(ctx, report, req)
+            "\n".join(report)
+            return
         try:
-            with TransactionManager(current_app, f"创建/更新微流 {request.full_path}"):
-                # 1. 确保文件夹路径存在并获取父容器和微流名称
-                parent_container, mf_name, module_name = _folder.ensure_folder(
-                    current_app, request.full_path)
-
-                if not parent_container or not mf_name or not module_name:
-                    raise ValueError(f"无效的路径: '{request.full_path}'")
-
-                report_lines.append(f"- 模块 '{module_name}' 和文件夹路径已确保存在。")
-
-                # 2. 查找或创建微流
-                mf = next((m for m in parent_container.GetDocuments()
-                          if m.Name == mf_name), None)
-
-                # 3. 设置返回类型
-                params = [
-                    ValueTuple.Create[String, DataType](param.name, _create_data_type(current_app, param.type)) for param in request.parameters]
-                return_type_obj = _create_data_type(
-                    current_app, request.return_type)
-                term = ('<'+request.return_type.qualified_name +
-                        '>') if request.return_type.qualified_name else ''
-                type_str = f'{request.return_type.type_name}{term}'
-                if not return_type_obj:
-                    # _create_data_type 返回的错误消息已经很清晰
-                    raise ValueError(type_str)
-                if not mf:
-                    # option 1: 创建微流
-                    # mf = current_app.Create[IMicroflow]()
-                    # mf.Name = mf_name
-                    # parent_container.AddDocument(mf)
-
-                    # option 2: create use service
-                    # or create use service
-                    microflowReturnValue = MicroflowReturnValue(
-                        return_type_obj, microflowExpressionService.CreateFromString(request.return_exp)) if request.return_exp else None
-                    mf = microflowService.CreateMicroflow(
-                        current_app, parent_container, mf_name, microflowReturnValue, params)
-                    report_lines.append(
-                        f"- [SUCCESS] 微流 '{module_name}.{mf_name}' 已创建。")
-                else:
-                    existingMicroflow = current_app.ToQualifiedName[IMicroflow](
-                        f'{module_name}.{mf_name}').Resolve()
-                    if existingMicroflow and existingMicroflow.Id == mf.Id:  # 确保 ID 不变
-                        mf = existingMicroflow
-                        report_lines.append(
-                            f"- [INFO] 微流 '{mf.QualifiedName}' 已存在，将进行更新...")
-                        mf.ReturnType = return_type_obj
-                        microflowService.Initialize(mf, params)
-                    else:
-                        raise ValueError(
-                            f"[ERROR] 找到同名微流 '{mf.QualifiedName}', 但 ID 不同。请检查输入。")
-                mf.ReturnVariableName = 'result'
-                report_lines.append(
-                    f"- [SUCCESS] 返回类型已设置为: {type_str}。")
-
-                # 4. 更新参数 (为简单起见，先清空再添加)
-                report_lines.append("- 处理参数 (清除现有参数后重新添加):")
-                if not request.parameters:
-                    report_lines.append("  - [INFO] 无参数需要添加。")
-
-            # 如果事务成功提交
-            report_lines.append(
-                f"[SUCCESS] 针对 '{request.full_path}' 的事务已提交。")
-            success_count += 1
-
+            with TransactionManager(ctx.CurrentApp, f"MF: {req.full_path}"):
+                _do_create(ctx, report, req)
         except Exception as e:
-            # TransactionManager 会自动回滚
-            report_lines.append(
-                f"[ERROR] 处理 '{request.full_path}' 失败: {e}")
-            # traceback
-            report_lines.append(traceback.format_exc())
-            report_lines.append("[INFO] 事务已回滚。")
-            failure_count += 1
-            continue  # 继续处理下一个请求
+            report.append(f"Error {req.full_path}: {str(e)}")
+            report.append(traceback.format_exc())
 
-    # 最终总结
-    report_lines.append("\n\n--- 最终总结 ---")
-    report_lines.append(
-        f"总共处理请求数: {len(tool_input.requests)}")
-    report_lines.append(f"成功: {success_count}")
-    report_lines.append(f"失败: {failure_count}")
-    report_lines.append("---------------------")
+    return "\n".join(report)
 
-    return "\n".join(report_lines)
+
+def _do_create(ctx, report, req):
+    folder, docName, moduleName = _folder.ensure_folder(ctx.CurrentApp, req.full_path)
+    report.append(f"{req.full_path} {folder} {docName} {moduleName}")
+
+    # Context initialization
+    build_ctx = BuilderContext(ctx, folder)
+
+    # Build execution
+    builder = MicroflowBuilder(build_ctx, req)
+    builder.build()
+
+    report.append(f"Success: {req.full_path}")
