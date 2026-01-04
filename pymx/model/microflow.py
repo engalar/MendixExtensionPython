@@ -48,7 +48,6 @@ from pymx.model.dto.type_microflow import (
 # ==========================================
 
 
-
 class BuilderContext:
     """持有构建过程中的所有必要服务和状态"""
 
@@ -246,6 +245,7 @@ class MicroflowBuilder:
                 f"{module_name}.{mf_name}"
             ).Resolve()
             self.mf.ReturnType = return_type
+            # FIX: return exp lost
             self.ctx.ctx.microflowService.Initialize(self.mf, params)
         else:
             if self.req.return_exp:
@@ -256,7 +256,15 @@ class MicroflowBuilder:
             else:
                 ret_val = MicroflowReturnValue(
                     return_type,
-                    self.ctx.ctx.microflowExpressionService.CreateFromString("empty"),
+                    (
+                        self.ctx.ctx.microflowExpressionService.CreateFromString(
+                            "empty"
+                        )
+                        if self.req.return_type.type_name == "Void"
+                        else self.ctx.ctx.microflowExpressionService.CreateFromString(
+                            "empty"
+                        )
+                    ),
                 )
 
             self.mf = self.ctx.ctx.microflowService.CreateMicroflow(
@@ -292,8 +300,7 @@ def create_microflows(ctx, tool_input: CreateMicroflowsToolInput, tx=None) -> st
     for req in tool_input.requests:
         if tx:
             _do_create(ctx, report, req)
-            "\n".join(report)
-            return
+            continue
         try:
             with TransactionManager(ctx.CurrentApp, f"MF: {req.full_path}"):
                 _do_create(ctx, report, req)
