@@ -3,13 +3,19 @@ from typing import List, Literal, Optional, Union, Dict, Callable, Any
 from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Self
 
-# System & Mendix Imports (Strictly limited to Reference Code)
+# System & Mendix Imports
 from System import ValueTuple, String, Array
 from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (
     IMicroflow,
     IActionActivity,
     MicroflowReturnValue,
     IHead,
+    ITail,
+    IUnion,
+    IIntersect,
+    IContains,
+    ISort,
+    AttributeSorting
 )
 from Mendix.StudioPro.ExtensionsAPI.Model.Microflows.Actions import (
     CommitEnum,
@@ -42,39 +48,28 @@ from pymx.model.dto.type_microflow import (
     CreateMicroflowsToolInput,
 )
 
-# --- 3. 业务逻辑构建器 ---
-
 # ==========================================
 # PART 2: Context & Utilities
 # ==========================================
 
-
 class BuilderContext:
-    """持有构建过程中的所有必要服务和状态"""
-
     def __init__(self, global_ctx, folder):
-        self.ctx = global_ctx  # 包含 microflowActivitiesService 等
-        self.app = global_ctx.CurrentApp  # 当前 IModel (CurrentApp)
-        self.folder = folder  # 目标文件夹
-        self.utils = MendixUtils(global_ctx.CurrentApp, global_ctx.domainModelService)  # 辅助工具
-
+        self.ctx = global_ctx
+        self.app = global_ctx.CurrentApp
+        self.folder = folder
+        self.utils = MendixUtils(global_ctx.CurrentApp, global_ctx.domainModelService)
 
 class MendixUtils:
-    """封装底层的 SDK 查找逻辑"""
-
-    def __init__(self, model,domainModelService):
+    def __init__(self, model, domainModelService):
         self.model = model
         self.domainModelService = domainModelService
 
-    def get_association(self, name: str) -> IAssociation: # System.UserRoles
+    def get_association(self, name: str) -> IAssociation:
         m = module.ensure_module(self.model, name.split('.')[0])
         a = name.split('.')[1]
-        # https://github.com/mendix/ExtensionAPI-Samples/blob/7f7625c81d0e15664ad8bc0a3a4433e4f6223b93/API%20Reference/Mendix.StudioPro.ExtensionsAPI.Services/IDomainModelService/GetAllAssociations.md  
         entityAssociations = self.domainModelService.GetAllAssociations(self.model, m)
         association = next((ea.Association for ea in entityAssociations
                   if ea.Association.Name == a), None)
-        # f"{m.Name}.{a}")
-
         return association
 
     def get_entity(self, name: str) -> IEntity:
@@ -84,7 +79,6 @@ class MendixUtils:
         return obj
 
     def get_attribute(self, entity: IEntity, attr_name: str) -> IAttribute:
-        # 参考代码逻辑：遍历查找
         found = next((a for a in entity.GetAttributes() if a.Name == attr_name), None)
         if not found:
             raise ValueError(f"Attribute '{attr_name}' not found in '{entity.Name}'")
@@ -92,17 +86,12 @@ class MendixUtils:
 
 
 # ==========================================
-# PART 3: Activity Handlers (Scalable)
+# PART 3: Activity Handlers
 # ==========================================
 
-# 定义 Handler 函数签名: (context, activity_dto) -> List[IActionActivity]
-# 返回 List 是为了处理 "One DTO -> Multiple SDK Activities" 的情况 (如 Change)
 HandlerFunc = Callable[[BuilderContext, Any], List[IActionActivity]]
 
-
 class ActivityDispatcher:
-    """策略分发器：将 DTO 类型映射到具体的构建函数"""
-
     def __init__(self):
         self._handlers: Dict[str, HandlerFunc] = {}
         self._register_defaults()
@@ -110,9 +99,7 @@ class ActivityDispatcher:
     def register(self, key: str, handler: HandlerFunc):
         self._handlers[key] = handler
 
-    def dispatch(
-        self, ctx: BuilderContext, activity_dto: BaseActivity
-    ) -> List[IActionActivity]:
+    def dispatch(self, ctx: BuilderContext, activity_dto: BaseActivity) -> List[IActionActivity]:
         handler = self._handlers.get(activity_dto.activity_type)
         if not handler:
             raise NotImplementedError(
@@ -121,40 +108,101 @@ class ActivityDispatcher:
         return handler(ctx, activity_dto)
 
     def _register_defaults(self):
-        # 在这里注册所有已实现的处理器
         self.register("Retrieve", self._handle_retrieve)
         self.register("Change", self._handle_change)
         self.register("Commit", self._handle_commit)
-        # 扩展点：在此行下方添加 self.register("AggregateList", self._handle_aggregate)
+        self.register("AggregateList", self._handle_aggregate)
+        self.register("ListOperation", self._handle_list_operation)
 
-    # --- Individual Handlers (Isolated Logic) ---
+    # --- Individual Handlers ---
 
-    def _handle_retrieve(
-        self, ctx: BuilderContext, act: RetrieveActivity
-    ) -> List[IActionActivity]:
-        assoc = ctx.utils.get_association(act.association_name)
+    def _handle_retrieve(self, ctx: BuilderContext, act: RetrieveActivity) -> List[IActionActivity]:
+        # 1. Association Retrieve
+        if act.source_type == "Association":
+            if not act.association_name or not act.source_variable:
+                raise ValueError("Retrieve by Association requires 'AssociationName' and 'SourceVariable'.")
 
-        # Strict adherence to Reference Code Service
-        sdk_act = (
-            # https://github.com/mendix/ExtensionAPI-Samples/blob/main/API%20Reference/Mendix.StudioPro.ExtensionsAPI.Services/IMicroflowActivitiesService/CreateAssociationRetrieveSourceActivity.md
-            ctx.ctx.microflowActivitiesService.CreateAssociationRetrieveSourceActivity(
+            assoc = ctx.utils.get_association(act.association_name)
+            if not assoc:
+                raise ValueError(f"Association '{act.association_name}' not found.")
+
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateAssociationRetrieveSourceActivity(
                 ctx.app, assoc, act.output_variable, act.source_variable
             )
-        )
-        return [sdk_act]
+            return [sdk_act]
 
-    def _handle_commit(
-        self, ctx: BuilderContext, act: CommitActivity
-    ) -> List[IActionActivity]:
+        # 2. Database Retrieve
+        elif act.source_type == "Database":
+            if not act.entity_name:
+                raise ValueError("Retrieve by Database requires 'EntityName'.")
+
+            entity = ctx.utils.get_entity(act.entity_name)
+
+            # 构造 Range Tuple (StartIndex, Amount)
+            range_tuple = None
+            if act.range_index or act.range_amount:
+                start_exp = ctx.ctx.microflowExpressionService.CreateFromString(
+                    act.range_index if act.range_index else "0"
+                )
+                # 如果没有amount，通常传null或不做处理，但CreateDatabaseRetrieveSourceActivity签名可能需要
+                # 根据API: (IMicroflowExpression startingIndex, IMicroflowExpression amount) range
+                # 如果不需要limit，amount 应该是 null 吗？Python.NET 中 null 对应 None
+                amount_exp = None
+                if act.range_amount:
+                    amount_exp = ctx.ctx.microflowExpressionService.CreateFromString(act.range_amount)
+
+                # C# ValueTuple 构造
+                range_tuple = ValueTuple.Create(start_exp, amount_exp)
+            else:
+                # 默认值
+                range_tuple = ValueTuple.Create(
+                    ctx.ctx.microflowExpressionService.CreateFromString("0"),
+                    None # 无限制
+                )
+            if range_tuple == None and act.retrieve_just_first_item != None:
+                range_tuple = act.retrieve_just_first_item
+
+            if range_tuple == None:
+                # FIX: 在RetrieveActivity加入DTO校验，而不是在此处
+                raise Exception('RetrieveJustFirstItem and [RangeIndex RangeAmount]只能二选一')
+
+            # 构造 Sorting
+            sort_list = []
+            if act.sorting:
+                for s in act.sorting:
+                    attr = ctx.utils.get_attribute(entity, s.attribute_name)
+                    direction = False if s.ascending else True
+                    sort_list.append(AttributeSorting(attr, direction))
+
+            sort_array = Array[AttributeSorting](sort_list)
+
+            # 调用 SDK
+            # CreateDatabaseRetrieveSourceActivity(model, outputVar, entity, xPath, range, sortingAttributes)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateDatabaseRetrieveSourceActivity(
+                ctx.app,
+                act.output_variable,
+                entity,
+                act.xpath_constraint, # 可为 None
+                range_tuple,
+                sort_array
+            )
+            return [sdk_act]
+
+        else:
+            raise ValueError(f"Unknown Retrieve source type: {act.source_type}")
+
+    def _handle_commit(self, ctx: BuilderContext, act: CommitActivity) -> List[IActionActivity]:
+        # public IActionActivity CreateCommitObjectActivity(IModel model, string commitVariableName, bool withEvents = true, bool refreshInClient = false)
+        # 按照用户提供的API签名，第四个参数是 refreshInClient
         sdk_act = ctx.ctx.microflowActivitiesService.CreateCommitObjectActivity(
-            ctx.app, act.variable_name, act.refresh_client, False
+            ctx.app, 
+            act.variable_name, 
+            True, # withEvents 默认为 True
+            act.refresh_client # refreshInClient
         )
         return [sdk_act]
 
-    def _handle_change(
-        self, ctx: BuilderContext, act: ChangeActivity
-    ) -> List[IActionActivity]:
-        # Logic: Convert 1 DTO into N Activities (because the Service handles 1 attr at a time)
+    def _handle_change(self, ctx: BuilderContext, act: ChangeActivity) -> List[IActionActivity]:
         entity = ctx.utils.get_entity(act.entity_name)
         result_acts = []
 
@@ -170,11 +218,18 @@ class ActivityDispatcher:
                 item.value_expression
             )
 
-            # Use Service from Reference Code
+            # Map Action string to Enum
+            action_map = {
+                "Set": ChangeActionItemType.Set,
+                "Add": ChangeActionItemType.Add,
+                "Remove": ChangeActionItemType.Remove
+            }
+            change_type = action_map.get(item.action, ChangeActionItemType.Set)
+
             sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeAttributeActivity(
                 ctx.app,
                 attr,
-                ChangeActionItemType.Set,
+                change_type,
                 val_expr,
                 act.variable_name,
                 commit_enum,
@@ -183,6 +238,61 @@ class ActivityDispatcher:
 
         return result_acts
 
+    def _handle_aggregate(self, ctx: BuilderContext, act: AggregateListActivity) -> List[IActionActivity]:
+        func_map = {
+            "Count": AggregateFunctionEnum.Count,
+            "Sum": AggregateFunctionEnum.Sum,
+            "Average": AggregateFunctionEnum.Average,
+            "Minimum": AggregateFunctionEnum.Minimum,
+            "Maximum": AggregateFunctionEnum.Maximum,
+        }
+        if act.function not in func_map:
+            raise ValueError(f"Unknown aggregate function: {act.function}")
+
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListActivity(
+            ctx.app,
+            act.input_list_variable,
+            act.output_variable,
+            func_map[act.function]
+        )
+        return [sdk_act]
+
+    def _handle_list_operation(self, ctx: BuilderContext, act: ListOperationActivity) -> List[IActionActivity]:
+        op_instance = None
+        op_type = act.operation_type
+
+        if op_type == "Head":
+            op_instance = ctx.app.Create[IHead]()
+        elif op_type == "Tail":
+            op_instance = ctx.app.Create[ITail]()
+        elif op_type == "Union":
+            op_instance = ctx.app.Create[IUnion]()
+        elif op_type == "Intersect":
+            op_instance = ctx.app.Create[IIntersect]()
+        elif op_type == "Contains":
+            op_instance = ctx.app.Create[IContains]()
+        elif op_type == "Sort":
+            op_instance = ctx.app.Create[ISort]()
+        else:
+            raise ValueError(f"Unsupported list operation: {op_type}")
+
+        sdk_act = None
+        if act.binary_operation_list_variable:
+            # 目前不支持binary operation
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
+                ctx.app, act.input_list_variable, act.output_variable, op_instance#, act.binary_operation_list_variable
+            )
+        else:
+
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
+                ctx.app, act.input_list_variable, act.output_variable, op_instance
+            )
+
+        # 实际上 SDK Service 可能会处理 Binary Operation 的第二参数绑定
+        # 如果 Service 没有暴露，需要手动设置，这里假设 Service 简化了流程
+        # 或者是用户需要保证 BinaryOperationListVariable 被逻辑正确处理 (暂未实现深入的 List2 绑定，依赖 Service API 行为)
+
+        return [sdk_act]
 
 # Global Dispatcher Instance
 _dispatcher = ActivityDispatcher()
@@ -191,37 +301,28 @@ _dispatcher = ActivityDispatcher()
 # PART 4: Main Builder Logic
 # ==========================================
 
-
 class MicroflowBuilder:
     def __init__(self, ctx: BuilderContext, request: MicroflowRequest):
         self.ctx = ctx
         self.req = request
         self.mf: Optional[IMicroflow] = None
-        self.logs: List[str] = []  # Added for debugging
+        self.logs: List[str] = []
 
     def log(self, msg: str):
-        """Helper to record internal logs"""
         self.logs.append(f"[Builder-{self.req.full_path}] {msg}")
 
-    def _create_data_type(self, type_info: type_microflow.DataTypeDefinition) -> Optional[DataType]:
+    def _create_data_type(self, type_info: DataTypeDefinition) -> Optional[DataType]:
         type_name = type_info.type_name.lower()
 
-        if type_name == "string":
-            return DataType.String
-        if type_name == "integer":
-            return DataType.Integer
-        if type_name == "long":
-            return DataType.Long
-        if type_name == "decimal":
-            return DataType.Decimal
-        if type_name == "boolean":
-            return DataType.Boolean
-        if type_name == "datetime":
-            return DataType.DateTime
-        if type_name == "binary":
-            return DataType.Binary
-        if type_name == "void":
-            return DataType.Void
+        if type_name == "string": return DataType.String
+        if type_name == "integer": return DataType.Integer
+        if type_name == "long": return DataType.Long
+        if type_name == "decimal": return DataType.Decimal
+        if type_name == "boolean": return DataType.Boolean
+        if type_name == "datetime": return DataType.DateTime
+        if type_name == "binary": return DataType.Binary
+        if type_name == "void": return DataType.Void
+        
         if type_name == "object":
             return DataType.Object(self.ctx.app.ToQualifiedName[IEntity](type_info.qualified_name))
         if type_name == "list":
@@ -231,8 +332,6 @@ class MicroflowBuilder:
         raise ValueError(f"不支持的数据类型 '{type_name}'。")
 
     def build(self):
-        """Orchestrates the creation of the Microflow"""
-        # 1. Shell (Header/Params)
         self.log("Starting build process...")
         try:
             self.mf = self._build_shell()
@@ -241,7 +340,6 @@ class MicroflowBuilder:
             self.log(f"Error building shell: {e}")
             raise
 
-        # 2. Body (Activities)
         try:
             self._build_body()
         except Exception as e:
@@ -255,14 +353,12 @@ class MicroflowBuilder:
         mf_name = self.req.full_path.split("/")[-1]
         module_name = self.req.full_path.split("/")[0]
 
-        # 1. 准备参数和返回类型
         params = [
             ValueTuple.Create[String, DataType](p.name, self._create_data_type(p.type))
             for p in self.req.parameters
         ]
         return_type = self._create_data_type(self.req.return_type)
 
-        # 2. 查找或创建
         existing = next(
             (m for m in self.ctx.folder.GetDocuments() if m.Name == mf_name), None
         )
@@ -272,7 +368,6 @@ class MicroflowBuilder:
                 f"{module_name}.{mf_name}"
             ).Resolve()
             self.mf.ReturnType = return_type
-            # FIX: return exp lost
             self.ctx.ctx.microflowService.Initialize(self.mf, params)
         else:
             if self.req.return_exp:
@@ -283,15 +378,9 @@ class MicroflowBuilder:
             else:
                 ret_val = MicroflowReturnValue(
                     return_type,
-                    (
-                        self.ctx.ctx.microflowExpressionService.CreateFromString(
-                            "empty"
-                        )
-                        if self.req.return_type.type_name == "Void"
-                        else self.ctx.ctx.microflowExpressionService.CreateFromString(
-                            "empty"
-                        )
-                    ),
+                    (self.ctx.ctx.microflowExpressionService.CreateFromString("empty")
+                     if self.req.return_type.type_name == "Void" else
+                     self.ctx.ctx.microflowExpressionService.CreateFromString("empty"))
                 )
 
             self.mf = self.ctx.ctx.microflowService.CreateMicroflow(
@@ -301,49 +390,31 @@ class MicroflowBuilder:
         return self.mf
 
     def _build_body(self):
-        self.log(f"Building body with {len(self.req.activities) if self.req.activities else 0} DTO activities.")
+        self.log(f"Building body with {len(self.req.activities) if self.req.activities else 0} activities.")
         if not self.req.activities:
             return
 
-        # Container for all generated SDK activities
         all_sdk_activities: List[IActionActivity] = []
 
-        # Loop through DTOs -> Delegate to Dispatcher -> Collect SDK Objects
         for i, act_dto in enumerate(self.req.activities):
             try:
                 self.log(f"Dispatching Activity [{i}] Type: {act_dto.activity_type}")
                 generated_acts = _dispatcher.dispatch(self.ctx, act_dto)
-                self.log(f"  -> Generated {len(generated_acts)} SDK items.")
                 all_sdk_activities.extend(generated_acts)
             except Exception as e:
                 self.log(f"  -> ERROR in dispatch: {str(e)}")
                 raise
 
-        # Insertion Strategy (Reverse order for 'TryInsertAfterStart' based on RefCode)
         if all_sdk_activities:
             try:
-                count = len(all_sdk_activities)
-                self.log(f"Converting {count} activities to C# Array (Reversed).")
                 csharp_array = Array[IActionActivity](all_sdk_activities[::-1])
-                
-                self.log("Calling TryInsertAfterStart...")
-                is_inserted = self.ctx.ctx.microflowService.TryInsertAfterStart(self.mf, csharp_array)
-                self.log(f"TryInsertAfterStart returned: {is_inserted}")
-                
-                if not is_inserted:
-                    self.log("WARNING: Activities were NOT inserted. Check SDK logs/constraints.")
+                self.ctx.ctx.microflowService.TryInsertAfterStart(self.mf, csharp_array)
             except Exception as e:
                 self.log(f"ERROR in TryInsertAfterStart: {str(e)}")
                 raise
-        else:
-            self.log("No SDK activities collected, skipping insertion.")
-
-# --- 4. 主入口 ---
-
 
 def create_microflows(ctx, tool_input: CreateMicroflowsToolInput, tx=None) -> str:
     report = ["Starting..."]
-
     for req in tool_input.requests:
         if tx:
             _do_create(ctx, report, req)
@@ -357,24 +428,16 @@ def create_microflows(ctx, tool_input: CreateMicroflowsToolInput, tx=None) -> st
 
     return "\n".join(report)
 
-
 def _do_create(ctx, report, req):
     folder, docName, moduleName = _folder.ensure_folder(ctx.CurrentApp, req.full_path)
-    report.append(f"{req.full_path} {folder} {docName} {moduleName}")
-
-    # Context initialization
     build_ctx = BuilderContext(ctx, folder)
-
-    # Build execution
     builder = MicroflowBuilder(build_ctx, req)
     try:
         builder.build()
         report.append(f"Success: {req.full_path}")
     except Exception as e:
         report.append(f"Failed to build {req.full_path}: {e}")
-        # 即使报错，也先把已有的 builder 日志打出来
     finally:
-        # 将 builder 内部收集的详细日志合并到主报告中
         if builder.logs:
             report.append("--- Builder Logs ---")
             report.extend(builder.logs)
