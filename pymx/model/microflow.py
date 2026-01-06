@@ -15,12 +15,14 @@ from Mendix.StudioPro.ExtensionsAPI.Model.Microflows import (
     IIntersect,
     IContains,
     ISort,
-    AttributeSorting
+    AttributeSorting,
+    IListOperation
 )
 from Mendix.StudioPro.ExtensionsAPI.Model.Microflows.Actions import (
     CommitEnum,
     ChangeActionItemType,
     AggregateFunctionEnum,
+    ChangeListActionOperation,
 )
 from Mendix.StudioPro.ExtensionsAPI.Model.DataTypes import DataType
 from Mendix.StudioPro.ExtensionsAPI.Model.Enumerations import IEnumeration, IEnumerationValue
@@ -29,6 +31,8 @@ from Mendix.StudioPro.ExtensionsAPI.Model.DomainModels import (
     IAttribute,
     IAssociation,
 )
+from Mendix.StudioPro.ExtensionsAPI.Model.MicroflowExpressions import IMicroflowExpression
+
 from pymx.model.util import TransactionManager
 from pymx.model import folder as _folder
 from pymx.model import module
@@ -44,6 +48,14 @@ from pymx.model.dto.type_microflow import (
     ListOperationActivity,
     CommitActivity,
     ChangeActivity,
+    CreateObjectActivity,
+    DeleteActivity,
+    RollbackActivity,
+    CreateListActivity,
+    ChangeListActivity,
+    SortListActivity,
+    FilterListActivity,
+    FindListActivity,
     MicroflowRequest,
     CreateMicroflowsToolInput,
 )
@@ -88,11 +100,25 @@ class MendixUtils:
         self.domainModelService = domainModelService
 
     def get_association(self, name: str) -> IAssociation:
-        m = module.ensure_module(self.model, name.split('.')[0])
-        a = name.split('.')[1]
+        # 支持 "Module.Association" 格式
+        parts = name.split('.')
+        if len(parts) != 2:
+             # 尝试直接查找
+             assoc = self.model.ToQualifiedName[IAssociation](name)
+             if assoc: return assoc
+             raise ValueError(f"Invalid association format: {name}")
+             
+        m = module.ensure_module(self.model, parts[0])
+        a = parts[1]
         entityAssociations = self.domainModelService.GetAllAssociations(self.model, m)
         association = next((ea.Association for ea in entityAssociations
                   if ea.Association.Name == a), None)
+        if not association:
+             # Fallback
+             association = self.model.ToQualifiedName[IAssociation](name)
+        
+        if not association:
+            raise ValueError(f"Association not found: {name}")
         return association
 
     def get_entity(self, name: str) -> IEntity:
@@ -106,10 +132,17 @@ class MendixUtils:
         if not found:
             raise ValueError(f"Attribute '{attr_name}' not found in '{entity.Name}'")
         return found
+    
     def get_attribute2(self, name: str) -> IAttribute:
-        m,e,a = name.split('.')
-        entity = self.get_entity(f"{m}.{e}")
-        return self.get_attribute(entity, a)
+        # Parse Module.Entity.Attribute
+        parts = name.split('.')
+        if len(parts) < 3:
+             raise ValueError(f"Attribute qualified name too short: {name}")
+        
+        entity_qname = f"{parts[0]}.{parts[1]}"
+        attr_name = parts[2]
+        entity = self.get_entity(entity_qname)
+        return self.get_attribute(entity, attr_name)
 
 
 # ==========================================
@@ -140,8 +173,151 @@ class ActivityDispatcher:
         self.register("Commit", self._handle_commit)
         self.register("AggregateList", self._handle_aggregate)
         self.register("ListOperation", self._handle_list_operation)
+        self.register("CreateObject", self._handle_create_object)
+        self.register("Delete", self._handle_delete)
+        self.register("Rollback", self._handle_rollback)
+        self.register("CreateList", self._handle_create_list)
+        self.register("ChangeList", self._handle_change_list)
+        self.register("SortList", self._handle_sort_list)
+        self.register("FilterList", self._handle_filter_list)
+        self.register("FindList", self._handle_find_list)
+
+    # --- Helper ---
+    
+    def _create_expr(self, ctx, val: str) -> IMicroflowExpression:
+        if val is None: return None
+        return ctx.ctx.microflowExpressionService.CreateFromString(val)
 
     # --- Individual Handlers ---
+
+    def _handle_create_object(self, ctx: BuilderContext, act: CreateObjectActivity) -> List[IActionActivity]:
+        entity = ctx.utils.get_entity(act.entity_name)
+        
+        commit_enum = CommitEnum.No
+        if act.commit == "Yes": commit_enum = CommitEnum.Yes
+        elif act.commit == "YesWithoutEvents": commit_enum = CommitEnum.YesWithoutEvents
+
+        # Prepare initial values params: (string attribute, IMicroflowExpression valueExpression)[]
+        init_vals_array = [ValueTuple.Create[str, IMicroflowExpression](iv.attribute_name, self._create_expr(ctx, iv.value_expression)) for iv in act.initial_values]
+        
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateCreateObjectActivity(
+            ctx.app,
+            entity,
+            act.output_variable,
+            commit_enum,
+            act.refresh_client,
+            init_vals_array
+        )
+        return [sdk_act]
+
+    def _handle_delete(self, ctx: BuilderContext, act: DeleteActivity) -> List[IActionActivity]:
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateDeleteObjectActivity(
+            ctx.app, act.variable_name
+        )
+        return [sdk_act]
+
+    def _handle_rollback(self, ctx: BuilderContext, act: RollbackActivity) -> List[IActionActivity]:
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateRollbackObjectActivity(
+            ctx.app, act.variable_name, act.refresh_client
+        )
+        return [sdk_act]
+
+    def _handle_create_list(self, ctx: BuilderContext, act: CreateListActivity) -> List[IActionActivity]:
+        entity = ctx.utils.get_entity(act.entity_name)
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateCreateListActivity(
+            ctx.app, entity, act.output_variable
+        )
+        return [sdk_act]
+
+    def _handle_change_list(self, ctx: BuilderContext, act: ChangeListActivity) -> List[IActionActivity]:
+        op_map = {
+            "Set": ChangeListActionOperation.Set,
+            "Add": ChangeListActionOperation.Add,
+            "Remove": ChangeListActionOperation.Remove,
+            "Clear": ChangeListActionOperation.Clear
+        }
+        op = op_map.get(act.operation, ChangeListActionOperation.Set)
+        
+        expr = self._create_expr(ctx, act.value_expression) if act.operation != "Clear" else None
+        
+        # Note: CreateChangeListActivity requires expression even for clear? 
+        # API Doc: IMicroflowExpression changeValueExpression. 
+        # If clear, maybe pass empty/null? Let's assume null is fine for Clear or Empty string.
+        if expr is None and act.operation != "Clear":
+             raise ValueError("ValueExpression is required for Set/Add/Remove list operations.")
+        
+        if expr is None:
+             # Workaround if service requires non-null
+             expr = self._create_expr(ctx, "empty")
+
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeListActivity(
+            ctx.app, op, act.list_variable, expr
+        )
+        return [sdk_act]
+
+    def _handle_sort_list(self, ctx: BuilderContext, act: SortListActivity) -> List[IActionActivity]:
+        # 构造 Sorting Params
+        # CreateSortListActivity(model, listVar, outputVar, params AttributeSorting[])
+        
+        # We need to know the Entity to resolve attributes. 
+        # The API doesn't take Entity, so it implies we need to resolve attributes based on context or just string?
+        # AttributeSorting constructor takes IAttribute.
+        # So we must infer entity from the list variable? The BuilderContext doesn't track variable types easily.
+        # FIX: The SortListActivity DTO should probably include EntityName to help resolution, 
+        # or we rely on the user providing fully qualified attribute names (Module.Entity.Attr).
+        
+        sort_list = []
+        for s in act.sorting:
+            # Try to resolve attribute using full name or partial if we knew entity
+            # For now, assume s.attribute_name is Qualified (Module.Entity.Attr)
+            attr = ctx.utils.get_attribute2(s.attribute_name)
+            direction = False if s.ascending else True
+            sort_list.append(AttributeSorting(attr, direction))
+
+        sort_array = Array[AttributeSorting](sort_list)
+        
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateSortListActivity(
+            ctx.app, act.list_variable, act.output_variable, sort_array
+        )
+        return [sdk_act]
+
+    def _handle_filter_list(self, ctx: BuilderContext, act: FilterListActivity) -> List[IActionActivity]:
+        expr = self._create_expr(ctx, act.expression)
+        
+        if act.filter_by == "Association":
+            assoc = ctx.utils.get_association(act.member_name)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateFilterListByAssociationActivity(
+                ctx.app, assoc, act.list_variable, act.output_variable, expr
+            )
+            return [sdk_act]
+        else: # Attribute
+            attr = ctx.utils.get_attribute2(act.member_name)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateFilterListByAttributeActivity(
+                ctx.app, attr, act.list_variable, act.output_variable, expr
+            )
+            return [sdk_act]
+
+    def _handle_find_list(self, ctx: BuilderContext, act: FindListActivity) -> List[IActionActivity]:
+        expr = self._create_expr(ctx, act.expression)
+        
+        if act.find_by == "Expression":
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateFindByExpressionActivity(
+                ctx.app, act.list_variable, act.output_variable, expr
+            )
+        elif act.find_by == "Attribute":
+            attr = ctx.utils.get_attribute2(act.member_name)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateFindByAttributeActivity(
+                ctx.app, attr, act.list_variable, act.output_variable, expr
+            )
+        elif act.find_by == "Association":
+            assoc = ctx.utils.get_association(act.member_name)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateFindByAssociationActivity(
+                ctx.app, assoc, act.list_variable, act.output_variable, expr
+            )
+        else:
+            raise ValueError(f"Unknown FindType: {act.find_by}")
+            
+        return [sdk_act]
 
     def _handle_retrieve(self, ctx: BuilderContext, act: RetrieveActivity) -> List[IActionActivity]:
         # 1. Association Retrieve
@@ -150,9 +326,6 @@ class ActivityDispatcher:
                 raise ValueError("Retrieve by Association requires 'AssociationName' and 'SourceVariable'.")
 
             assoc = ctx.utils.get_association(act.association_name)
-            if not assoc:
-                raise ValueError(f"Association '{act.association_name}' not found.")
-
             sdk_act = ctx.ctx.microflowActivitiesService.CreateAssociationRetrieveSourceActivity(
                 ctx.app, assoc, act.output_variable, act.source_variable
             )
@@ -165,34 +338,6 @@ class ActivityDispatcher:
 
             entity = ctx.utils.get_entity(act.entity_name)
 
-            # 构造 Range Tuple (StartIndex, Amount)
-            range_tuple = None
-            if act.range_index or act.range_amount:
-                start_exp = ctx.ctx.microflowExpressionService.CreateFromString(
-                    act.range_index if act.range_index else "0"
-                )
-                # 如果没有amount，通常传null或不做处理，但CreateDatabaseRetrieveSourceActivity签名可能需要
-                # 根据API: (IMicroflowExpression startingIndex, IMicroflowExpression amount) range
-                # 如果不需要limit，amount 应该是 null 吗？Python.NET 中 null 对应 None
-                amount_exp = None
-                if act.range_amount:
-                    amount_exp = ctx.ctx.microflowExpressionService.CreateFromString(act.range_amount)
-
-                # C# ValueTuple 构造
-                range_tuple = ValueTuple.Create(start_exp, amount_exp)
-            else:
-                # 默认值
-                range_tuple = ValueTuple.Create(
-                    ctx.ctx.microflowExpressionService.CreateFromString("0"),
-                    None # 无限制
-                )
-            if range_tuple == None and act.retrieve_just_first_item != None:
-                range_tuple = act.retrieve_just_first_item
-
-            if range_tuple == None:
-                # FIX: 在RetrieveActivity加入DTO校验，而不是在此处
-                raise Exception('RetrieveJustFirstItem and [RangeIndex RangeAmount]只能二选一')
-
             # 构造 Sorting
             sort_list = []
             if act.sorting:
@@ -200,32 +345,59 @@ class ActivityDispatcher:
                     attr = ctx.utils.get_attribute(entity, s.attribute_name)
                     direction = False if s.ascending else True
                     sort_list.append(AttributeSorting(attr, direction))
-
             sort_array = Array[AttributeSorting](sort_list)
 
-            # 调用 SDK
-            # CreateDatabaseRetrieveSourceActivity(model, outputVar, entity, xPath, range, sortingAttributes)
-            sdk_act = ctx.ctx.microflowActivitiesService.CreateDatabaseRetrieveSourceActivity(
-                ctx.app,
-                act.output_variable,
-                entity,
-                act.xpath_constraint, # 可为 None
-                range_tuple,
-                sort_array
-            )
+            # Two overloads: one with Range Tuple, one with retrieveJustFirstItem bool
+            
+            if act.retrieve_just_first_item is not None:
+                # Use overload with bool
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateDatabaseRetrieveSourceActivity(
+                    ctx.app,
+                    act.output_variable,
+                    entity,
+                    act.xpath_constraint, 
+                    act.retrieve_just_first_item,
+                    sort_array
+                )
+            else:
+                # Use overload with Range
+                start_str = act.range_index if act.range_index else "0"
+                start_exp = self._create_expr(ctx, start_str)
+                
+                amount_exp = None
+                if act.range_amount:
+                     amount_exp = self._create_expr(ctx, act.range_amount)
+                else:
+                     # CreateDatabaseRetrieveSourceActivity signature expects Tuple(Expr, Expr)
+                     # If infinite, what to pass? Assuming API handles None or we pass -1?
+                     # Usually for infinite list retrieve, amount is not constrained.
+                     # If the API requires the tuple, we probably shouldn't use this overload if we want 'All' without limit.
+                     # But CreateDatabaseRetrieveSourceActivity(..., range, ...) is the only one for list with range.
+                     pass 
+                
+                # C# ValueTuple 构造
+                range_tuple = ValueTuple.Create[IMicroflowExpression, IMicroflowExpression](start_exp, amount_exp)
+                
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateDatabaseRetrieveSourceActivity(
+                    ctx.app,
+                    act.output_variable,
+                    entity,
+                    act.xpath_constraint,
+                    range_tuple,
+                    sort_array
+                )
+                
             return [sdk_act]
 
         else:
             raise ValueError(f"Unknown Retrieve source type: {act.source_type}")
 
     def _handle_commit(self, ctx: BuilderContext, act: CommitActivity) -> List[IActionActivity]:
-        # public IActionActivity CreateCommitObjectActivity(IModel model, string commitVariableName, bool withEvents = true, bool refreshInClient = false)
-        # 按照用户提供的API签名，第四个参数是 refreshInClient
         sdk_act = ctx.ctx.microflowActivitiesService.CreateCommitObjectActivity(
             ctx.app, 
             act.variable_name, 
             True, # withEvents 默认为 True
-            act.refresh_client # refreshInClient
+            act.refresh_client
         )
         return [sdk_act]
 
@@ -240,10 +412,7 @@ class ActivityDispatcher:
             commit_enum = CommitEnum.YesWithoutEvents
 
         for item in act.changes:
-            attr = ctx.utils.get_attribute(entity, item.attribute_name)
-            val_expr = ctx.ctx.microflowExpressionService.CreateFromString(
-                item.value_expression
-            )
+            val_expr = self._create_expr(ctx, item.value_expression)
 
             # Map Action string to Enum
             action_map = {
@@ -253,15 +422,30 @@ class ActivityDispatcher:
             }
             change_type = action_map.get(item.action, ChangeActionItemType.Set)
 
-            sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeAttributeActivity(
-                ctx.app,
-                attr,
-                change_type,
-                val_expr,
-                act.variable_name,
-                commit_enum,
-            )
-            result_acts.append(sdk_act)
+            if item.attribute_name:
+                attr = ctx.utils.get_attribute(entity, item.attribute_name)
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeAttributeActivity(
+                    ctx.app,
+                    attr,
+                    change_type,
+                    val_expr,
+                    act.variable_name,
+                    commit_enum,
+                )
+                result_acts.append(sdk_act)
+            elif item.association_name:
+                assoc = ctx.utils.get_association(item.association_name)
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateChangeAssociationActivity(
+                    ctx.app,
+                    assoc,
+                    change_type,
+                    val_expr,
+                    act.variable_name,
+                    commit_enum,
+                )
+                result_acts.append(sdk_act)
+            else:
+                raise ValueError("ChangeItem must have either AttributeName or AssociationName")
 
         return result_acts
 
@@ -279,72 +463,74 @@ class ActivityDispatcher:
         sdk_act = None
         if act.function not in func_map:
             raise ValueError(f"Unknown aggregate function: {act.function}")
-        # 根据act.function act.attribute act.expression选择合适的 CreateAggregateListByAttributeActivity、CreateAggregateListByExpressionActivity、CreateAggregateListActivity
+        
+        enum_val = func_map[act.function]
+
         if act.function in ['Count']:
             sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListActivity(
-            ctx.app,
-            act.input_list_variable,
-            act.output_variable,
-            func_map[act.function]
-        )
-        if act.function in ['Sum', 'Average','Minimum', 'Maximum']:
-            # act.attribute and act.expression有且只有一个
-            if act.expression ==None and act.attribute==None:
-                raise
-            if act.expression !=None and act.attribute!=None:
-                raise
-
-            if act.expression != None:
-                exp = ctx.ctx.microflowExpressionService.CreateFromString(
-                    act.expression
-                )
+                ctx.app,
+                act.input_list_variable,
+                act.output_variable,
+                enum_val
+            )
+        elif act.function in ['Sum', 'Average','Minimum', 'Maximum']:
+            if act.expression:
+                exp = self._create_expr(ctx, act.expression)
                 sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByExpressionActivity(
                     ctx.app,
                     exp,
                     act.input_list_variable,
                     act.output_variable,
-                    func_map[act.function],
+                    enum_val,
                 )
-
-            if act.attribute != None:
-                attribute = ctx.ctx.utils.get_attribute2(act.attribute)
+            elif act.attribute:
+                attribute = ctx.utils.get_attribute2(act.attribute)
                 sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByAttributeActivity(
                     ctx.app,
                     attribute,
                     act.input_list_variable,
                     act.output_variable,
-                    func_map[act.function],
+                    enum_val,
                 )
-        if act.function in ['All', 'Any']:
-            if act.expression ==None:
-                raise
-            exp = ctx.ctx.microflowExpressionService.CreateFromString(act.expression)
+            else:
+                raise ValueError(f"Function {act.function} requires either Attribute or Expression.")
+
+        elif act.function in ['All', 'Any']:
+            if not act.expression: raise ValueError(f"{act.function} requires Expression.")
+            exp = self._create_expr(ctx, act.expression)
             sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByExpressionActivity(
-            ctx.app,
-            exp,
-            act.input_list_variable,
-            act.output_variable,
-            func_map[act.function]
-        )
-        if act.function in ['Reduce']:
-            if act.expression ==None:
-                raise
+                ctx.app,
+                exp,
+                act.input_list_variable,
+                act.output_variable,
+                enum_val
+            )
+        elif act.function in ['Reduce']:
+            if not act.expression or not act.init_expression or not act.result_type:
+                raise ValueError("Reduce requires Expression, InitExpression, and ResultType.")
+            
             dataType = ctx._create_data_type(act.result_type)
-            initialValueExpression = ctx.ctx.microflowExpressionService.CreateFromString(act.init_expression)
-            exp = ctx.ctx.microflowExpressionService.CreateFromString(act.expression)
+            initialValueExpression = self._create_expr(ctx, act.init_expression)
+            exp = self._create_expr(ctx, act.expression)
+            
             sdk_act = ctx.ctx.microflowActivitiesService.CreateReduceAggregateActivity(
-            ctx.app,
-            act.input_list_variable,
-            act.output_variable,
-            initialValueExpression,
-            exp,
-            dataType
-        )
-        if sdk_act == None:
-            raise
+                ctx.app,
+                act.input_list_variable,
+                act.output_variable,
+                initialValueExpression,
+                exp,
+                dataType
+            )
+        
+        if sdk_act is None:
+            raise ValueError("Failed to create aggregate activity.")
         return [sdk_act]
 
     def _handle_list_operation(self, ctx: BuilderContext, act: ListOperationActivity) -> List[IActionActivity]:
+        # Legacy support for Head/Tail, mapped to generic list operation interface if possible,
+        # but the provided service 'CreateListOperationActivity' takes IListOperation.
+        # We need to instantiate specific classes implementing IListOperation (IHead, ITail, etc.)
+        
         op_instance = None
         op_type = act.operation_type
 
@@ -352,37 +538,20 @@ class ActivityDispatcher:
             op_instance = ctx.app.Create[IHead]()
         elif op_type == "Tail":
             op_instance = ctx.app.Create[ITail]()
+        # Other types like Union/Intersect are not in the provided DTO Literal yet, but logic is here:
         elif op_type == "Union":
             op_instance = ctx.app.Create[IUnion]()
         elif op_type == "Intersect":
             op_instance = ctx.app.Create[IIntersect]()
         elif op_type == "Contains":
             op_instance = ctx.app.Create[IContains]()
-        elif op_type == "Sort":
-            op_instance = ctx.app.Create[ISort]()
         else:
             raise ValueError(f"Unsupported list operation: {op_type}")
 
-        sdk_act = None
-        if act.binary_operation_list_variable:
-            # 目前不支持binary operation
-            sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
-                ctx.app, act.input_list_variable, act.output_variable, op_instance#, act.binary_operation_list_variable
-            )
-        else:
-
-            sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
-                ctx.app, act.input_list_variable, act.output_variable, op_instance
-            )
-        if op_type in ['Sum']:
-            # a = get_attribute(act.)
-            sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByAttributeActivity(
-                ctx.app, act.input_list_variable, act.output_variable, op_instance
-            )
-        # 实际上 SDK Service 可能会处理 Binary Operation 的第二参数绑定
-        # 如果 Service 没有暴露，需要手动设置，这里假设 Service 简化了流程
-        # 或者是用户需要保证 BinaryOperationListVariable 被逻辑正确处理 (暂未实现深入的 List2 绑定，依赖 Service API 行为)
-
+        sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
+            ctx.app, act.input_list_variable, act.output_variable, op_instance
+        )
+        
         return [sdk_act]
 
 # Global Dispatcher Instance

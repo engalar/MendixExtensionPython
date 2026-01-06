@@ -58,12 +58,39 @@ class SortItem(BaseModel):
     ascending: bool = Field(True, alias="Ascending", description="是否升序排列。默认为 True。")
 
 
+# --- Create / Delete / Rollback ---
+
+class InitialValueItem(BaseModel):
+    attribute_name: str = Field(..., alias="AttributeName", description="属性名称")
+    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式")
+    # API不支持操作类型，可以生成后人工在IDE调整
+
+class CreateObjectActivity(BaseActivity):
+    """创建对象活动"""
+    activity_type: Literal["CreateObject"] = Field("CreateObject", alias="ActivityType")
+    entity_name: str = Field(..., alias="EntityName", description="实体限定名")
+    output_variable: str = Field(..., alias="OutputVariable", description="输出变量名")
+    commit: Literal["No", "Yes", "YesWithoutEvents"] = Field("No", alias="Commit")
+    refresh_client: bool = Field(False, alias="RefreshClient")
+    initial_values: List[InitialValueItem] = Field(default=[], alias="InitialValues")
+
+class DeleteActivity(BaseActivity):
+    """删除对象活动"""
+    activity_type: Literal["Delete"] = Field("Delete", alias="ActivityType")
+    variable_name: str = Field(..., alias="VariableName", description="要删除的对象变量名")
+
+class RollbackActivity(BaseActivity):
+    """回滚对象活动"""
+    activity_type: Literal["Rollback"] = Field("Rollback", alias="ActivityType")
+    variable_name: str = Field(..., alias="VariableName", description="要回滚的对象变量名")
+    refresh_client: bool = Field(False, alias="RefreshClient")
+
+
+# --- Retrieve ---
+
 class RetrieveActivity(BaseActivity):
     """
     获取数据活动 (Retrieve)。
-    支持两种模式：
-    1. ByAssociation: 从关联获取 (需要 SourceVariable 和 AssociationName)。
-    2. Database: 从数据库获取 (需要 EntityName，可选 XPath, Range, Sorting)。
     """
     activity_type: Literal["Retrieve"] = Field("Retrieve", alias="ActivityType")
 
@@ -117,10 +144,55 @@ class RetrieveActivity(BaseActivity):
     )
     sorting: List[SortItem] = Field(
         default=[], 
-        alias="RetrieveJustFirstItem", 
+        alias="Sorting", 
         description="[Database模式可选] 排序规则列表。"
     )
 
+
+# --- List Specific Activities ---
+
+class CreateListActivity(BaseActivity):
+    """创建列表"""
+    activity_type: Literal["CreateList"] = Field("CreateList", alias="ActivityType")
+    entity_name: str = Field(..., alias="EntityName")
+    output_variable: str = Field(..., alias="OutputVariable")
+
+class ChangeListActivity(BaseActivity):
+    """修改列表"""
+    activity_type: Literal["ChangeList"] = Field("ChangeList", alias="ActivityType")
+    operation: Literal["Set", "Add", "Remove", "Clear"] = Field(..., alias="Operation")
+    list_variable: str = Field(..., alias="ListVariable")
+    # Set/Add/Remove 需要 Value
+    value_expression: Optional[str] = Field(None, alias="ValueExpression")
+
+class SortListActivity(BaseActivity):
+    """列表排序 (非数据库)"""
+    activity_type: Literal["SortList"] = Field("SortList", alias="ActivityType")
+    list_variable: str = Field(..., alias="ListVariable")
+    output_variable: str = Field(..., alias="OutputVariable")
+    sorting: List[SortItem] = Field(default=[], alias="Sorting")
+
+class FilterListActivity(BaseActivity):
+    """列表过滤"""
+    activity_type: Literal["FilterList"] = Field("FilterList", alias="ActivityType")
+    filter_by: Literal["Attribute", "Association"] = Field(..., alias="FilterBy")
+    list_variable: str = Field(..., alias="ListVariable")
+    output_variable: str = Field(..., alias="OutputVariable")
+    member_name: str = Field(..., alias="MemberName", description="属性名或关联名")
+    expression: str = Field(..., alias="Expression", description="过滤表达式")
+
+class FindListActivity(BaseActivity):
+    """列表查找 (Find)"""
+    activity_type: Literal["FindList"] = Field("FindList", alias="ActivityType")
+    find_by: Literal["Expression", "Attribute", "Association"] = Field(..., alias="FindBy")
+    list_variable: str = Field(..., alias="ListVariable")
+    output_variable: str = Field(..., alias="OutputVariable")
+    # Attribute/Association 模式需要 MemberName
+    member_name: Optional[str] = Field(None, alias="MemberName")
+    expression: str = Field(..., alias="Expression", description="查找表达式")
+
+
+# --- Existing Activities (Expanded) ---
 
 class AggregateListActivity(BaseActivity):
     """聚合列表活动 (Aggregate List)，用于计算 Count, Sum, Average 等。"""
@@ -184,10 +256,13 @@ class ListOperationActivity(BaseActivity):
 
 
 class ChangeItem(BaseModel):
-    """定义单个属性的修改操作。"""
+    """定义单个属性或关联的修改操作。"""
     model_config = ConfigDict(populate_by_name=True)
     
-    attribute_name: str = Field(..., alias="AttributeName", description="要修改的属性名。")
+    # 支持 Attribute 或 Association
+    attribute_name: Optional[str] = Field(None, alias="AttributeName", description="要修改的属性名。")
+    association_name: Optional[str] = Field(None, alias="AssociationName", description="要修改的关联名。")
+    
     action: Literal["Set", "Add", "Remove"] = Field(
         "Set", 
         alias="Action", 
@@ -205,7 +280,7 @@ class ChangeActivity(BaseActivity):
     
     variable_name: str = Field(..., alias="VariableName", description="要修改的对象变量名。")
     entity_name: str = Field(..., alias="EntityName", description="对象的实体类型 (用于解析属性)。")
-    changes: List[ChangeItem] = Field(default=[], alias="Changes", description="属性变更列表。")
+    changes: List[ChangeItem] = Field(default=[], alias="Changes", description="变更列表。")
     commit: Literal["No", "Yes", "YesWithoutEvents"] = Field(
         "No", 
         alias="Commit", 
@@ -228,7 +303,15 @@ class CommitActivity(BaseActivity):
 # Discriminated Union
 ActivityUnion = Annotated[
     Union[
+        CreateObjectActivity,
+        DeleteActivity,
+        RollbackActivity,
         RetrieveActivity,
+        CreateListActivity,
+        ChangeListActivity,
+        SortListActivity,
+        FilterListActivity,
+        FindListActivity,
         AggregateListActivity,
         ListOperationActivity,
         ChangeActivity,
