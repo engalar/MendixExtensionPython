@@ -58,6 +58,29 @@ class BuilderContext:
         self.app = global_ctx.CurrentApp
         self.folder = folder
         self.utils = MendixUtils(global_ctx.CurrentApp, global_ctx.domainModelService)
+    
+
+    def _create_data_type(self, type_info: DataTypeDefinition) -> Optional[DataType]:
+        type_name = type_info.type_name.lower()
+
+        if type_name == "string": return DataType.String
+        if type_name == "integer": return DataType.Integer
+        if type_name == "long": return DataType.Long
+        if type_name == "decimal": return DataType.Decimal
+        if type_name == "boolean": return DataType.Boolean
+        if type_name == "datetime": return DataType.DateTime
+
+        # 
+        if type_name == "binary": return DataType.Binary
+        if type_name == "void": return DataType.Void
+        
+        if type_name == "object":
+            return DataType.Object(self.app.ToQualifiedName[IEntity](type_info.qualified_name))
+        if type_name == "list":
+            return DataType.List(self.app.ToQualifiedName[IEntity](type_info.qualified_name))
+        if type_name == "enumeration":
+            return DataType.Enumeration(self.app.ToQualifiedName[IEnumeration](type_info.qualified_name))
+        raise ValueError(f"不支持的数据类型 '{type_name}'。")
 
 class MendixUtils:
     def __init__(self, model, domainModelService):
@@ -83,6 +106,10 @@ class MendixUtils:
         if not found:
             raise ValueError(f"Attribute '{attr_name}' not found in '{entity.Name}'")
         return found
+    def get_attribute2(self, name: str) -> IAttribute:
+        m,e,a = name.split('.')
+        entity = self.get_entity(f"{m}.{e}")
+        return self.get_attribute(entity, a)
 
 
 # ==========================================
@@ -240,21 +267,81 @@ class ActivityDispatcher:
 
     def _handle_aggregate(self, ctx: BuilderContext, act: AggregateListActivity) -> List[IActionActivity]:
         func_map = {
-            "Count": AggregateFunctionEnum.Count,
             "Sum": AggregateFunctionEnum.Sum,
             "Average": AggregateFunctionEnum.Average,
+            "Count": AggregateFunctionEnum.Count,
             "Minimum": AggregateFunctionEnum.Minimum,
             "Maximum": AggregateFunctionEnum.Maximum,
+            "All": AggregateFunctionEnum.All,
+            "Any": AggregateFunctionEnum.Any,
+            "Reduce": AggregateFunctionEnum.Reduce,
         }
+        sdk_act = None
         if act.function not in func_map:
             raise ValueError(f"Unknown aggregate function: {act.function}")
-
-        sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListActivity(
+        # 根据act.function act.attribute act.expression选择合适的 CreateAggregateListByAttributeActivity、CreateAggregateListByExpressionActivity、CreateAggregateListActivity
+        if act.function in ['Count']:
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListActivity(
             ctx.app,
             act.input_list_variable,
             act.output_variable,
             func_map[act.function]
         )
+        if act.function in ['Sum', 'Average','Minimum', 'Maximum']:
+            # act.attribute and act.expression有且只有一个
+            if act.expression ==None and act.attribute==None:
+                raise
+            if act.expression !=None and act.attribute!=None:
+                raise
+
+            if act.expression != None:
+                exp = ctx.ctx.microflowExpressionService.CreateFromString(
+                    act.expression
+                )
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByExpressionActivity(
+                    ctx.app,
+                    exp,
+                    act.input_list_variable,
+                    act.output_variable,
+                    func_map[act.function],
+                )
+
+            if act.attribute != None:
+                attribute = ctx.ctx.utils.get_attribute2(act.attribute)
+                sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByAttributeActivity(
+                    ctx.app,
+                    attribute,
+                    act.input_list_variable,
+                    act.output_variable,
+                    func_map[act.function],
+                )
+        if act.function in ['All', 'Any']:
+            if act.expression ==None:
+                raise
+            exp = ctx.ctx.microflowExpressionService.CreateFromString(act.expression)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByExpressionActivity(
+            ctx.app,
+            exp,
+            act.input_list_variable,
+            act.output_variable,
+            func_map[act.function]
+        )
+        if act.function in ['Reduce']:
+            if act.expression ==None:
+                raise
+            dataType = ctx._create_data_type(act.result_type)
+            initialValueExpression = ctx.ctx.microflowExpressionService.CreateFromString(act.init_expression)
+            exp = ctx.ctx.microflowExpressionService.CreateFromString(act.expression)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateReduceAggregateActivity(
+            ctx.app,
+            act.input_list_variable,
+            act.output_variable,
+            initialValueExpression,
+            exp,
+            dataType
+        )
+        if sdk_act == None:
+            raise
         return [sdk_act]
 
     def _handle_list_operation(self, ctx: BuilderContext, act: ListOperationActivity) -> List[IActionActivity]:
@@ -287,7 +374,11 @@ class ActivityDispatcher:
             sdk_act = ctx.ctx.microflowActivitiesService.CreateListOperationActivity(
                 ctx.app, act.input_list_variable, act.output_variable, op_instance
             )
-
+        if op_type in ['Sum']:
+            # a = get_attribute(act.)
+            sdk_act = ctx.ctx.microflowActivitiesService.CreateAggregateListByAttributeActivity(
+                ctx.app, act.input_list_variable, act.output_variable, op_instance
+            )
         # 实际上 SDK Service 可能会处理 Binary Operation 的第二参数绑定
         # 如果 Service 没有暴露，需要手动设置，这里假设 Service 简化了流程
         # 或者是用户需要保证 BinaryOperationListVariable 被逻辑正确处理 (暂未实现深入的 List2 绑定，依赖 Service API 行为)
@@ -310,26 +401,6 @@ class MicroflowBuilder:
 
     def log(self, msg: str):
         self.logs.append(f"[Builder-{self.req.full_path}] {msg}")
-
-    def _create_data_type(self, type_info: DataTypeDefinition) -> Optional[DataType]:
-        type_name = type_info.type_name.lower()
-
-        if type_name == "string": return DataType.String
-        if type_name == "integer": return DataType.Integer
-        if type_name == "long": return DataType.Long
-        if type_name == "decimal": return DataType.Decimal
-        if type_name == "boolean": return DataType.Boolean
-        if type_name == "datetime": return DataType.DateTime
-        if type_name == "binary": return DataType.Binary
-        if type_name == "void": return DataType.Void
-        
-        if type_name == "object":
-            return DataType.Object(self.ctx.app.ToQualifiedName[IEntity](type_info.qualified_name))
-        if type_name == "list":
-            return DataType.List(self.ctx.app.ToQualifiedName[IEntity](type_info.qualified_name))
-        if type_name == "enumeration":
-            return DataType.Enumeration(self.ctx.app.ToQualifiedName[IEnumeration](type_info.qualified_name))
-        raise ValueError(f"不支持的数据类型 '{type_name}'。")
 
     def build(self):
         self.log("Starting build process...")
@@ -354,10 +425,10 @@ class MicroflowBuilder:
         module_name = self.req.full_path.split("/")[0]
 
         params = [
-            ValueTuple.Create[String, DataType](p.name, self._create_data_type(p.type))
+            ValueTuple.Create[String, DataType](p.name, self.ctx._create_data_type(p.type))
             for p in self.req.parameters
         ]
-        return_type = self._create_data_type(self.req.return_type)
+        return_type = self.ctx._create_data_type(self.req.return_type)
 
         existing = next(
             (m for m in self.ctx.folder.GetDocuments() if m.Name == mf_name), None

@@ -66,7 +66,7 @@ class RetrieveActivity(BaseActivity):
     2. Database: 从数据库获取 (需要 EntityName，可选 XPath, Range, Sorting)。
     """
     activity_type: Literal["Retrieve"] = Field("Retrieve", alias="ActivityType")
-    
+
     source_type: Literal["Association", "Database"] = Field(
         "Association", 
         alias="SourceType", 
@@ -124,19 +124,42 @@ class RetrieveActivity(BaseActivity):
 
 class AggregateListActivity(BaseActivity):
     """聚合列表活动 (Aggregate List)，用于计算 Count, Sum, Average 等。"""
-    activity_type: Literal["AggregateList"] = Field("AggregateList", alias="ActivityType")
-    
-    input_list_variable: str = Field(..., alias="InputListVariable", description="要聚合的列表变量名。")
-    output_variable: str = Field(..., alias="OutputVariable", description="存储结果的变量名。")
-    function: Literal["Count", "Sum", "Average", "Minimum", "Maximum"] = Field(
-        ..., 
-        alias="Function", 
-        description="聚合函数类型。"
+
+    activity_type: Literal["AggregateList"] = Field(
+        "AggregateList", alias="ActivityType"
     )
-    attribute_name: Optional[str] = Field(
-        None, 
-        alias="AttributeName", 
-        description="[Sum/Avg/Min/Max 必填] 要进行计算的属性名。"
+
+    input_list_variable: str = Field(
+        ..., alias="InputListVariable", description="要聚合的列表变量名。"
+    )
+    output_variable: str = Field(
+        ..., alias="OutputVariable", description="存储结果的变量名。"
+    )
+    function: Literal[
+        "Sum", "Average", "Count", "Minimum", "Maximum", "All", "Any", "Reduce"
+    ] = Field(..., alias="Function", description="聚合函数类型。")
+    attribute: Optional[str] = Field(
+        None,
+        alias="Attribute",
+        description="[Sum/Avg/Min/Max 必填] 要进行计算的属性名。必需是数字属性",
+        examples="MyFirstModule.MyEntity.MyAttribute"
+    )
+    result_type: Optional[DataTypeDefinition] = Field(
+        None,
+        alias="ResultType",
+        description="当function=Reduce时需要，仅支持\"Enumeration\", \"Decimal\", \"Boolean\", \"DateTime\",\"Integer\", \"Long\", \"String\""
+    )
+    expression: Optional[str] = Field(
+        None,
+        alias="Expression",
+        description="要进行计算的属性表达式。当function不为'Count','All', 'Any'时， 必需是数字类型；当function为'All', 'Any'，时表达式值类型要是布尔;当function=Reduce时，系统变量$currentResult（类型为ResultType）   $currentObject可用",
+        examples="$currentObject/Price"
+    )
+    init_expression: Optional[str] = Field(
+        None,
+        alias="InitExpression",
+        description="仅当Reduce时需要，表示初始值，必需是数字类型",
+        examples="$currentObject/Price"
     )
 
 
