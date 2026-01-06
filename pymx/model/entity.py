@@ -33,7 +33,7 @@ importlib.reload(_module)
 class EntityAttribute(BaseModel):
     """Defines the structure for an entity's attribute."""
     name: str = Field(..., alias="Name",
-                      description="The name of the attribute.")
+                      description="The name of the attribute 'Type' 是保留名，禁止使用.")
     type: Literal["String", "Integer", "Long", "Decimal", "Boolean", "DateTime", "AutoNumber",
                   "Enumeration", "HashString", "Binary"] = Field(..., alias="Type", description="The data type of the attribute.")
     description: Optional[str] = Field(
