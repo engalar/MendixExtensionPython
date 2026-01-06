@@ -25,6 +25,7 @@ from Mendix.StudioPro.ExtensionsAPI.Model.DomainModels import (
 )
 from pymx.model.util import TransactionManager
 from pymx.model import folder as _folder
+from pymx.model import module
 import importlib
 from pymx.model.dto import type_microflow
 importlib.reload(type_microflow)
@@ -55,20 +56,26 @@ class BuilderContext:
         self.ctx = global_ctx  # 包含 microflowActivitiesService 等
         self.app = global_ctx.CurrentApp  # 当前 IModel (CurrentApp)
         self.folder = folder  # 目标文件夹
-        self.utils = MendixUtils(global_ctx.CurrentApp)  # 辅助工具
+        self.utils = MendixUtils(global_ctx.CurrentApp, global_ctx.domainModelService)  # 辅助工具
 
 
 class MendixUtils:
     """封装底层的 SDK 查找逻辑"""
 
-    def __init__(self, model):
+    def __init__(self, model,domainModelService):
         self.model = model
+        self.domainModelService = domainModelService
 
-    def get_association(self, name: str) -> IAssociation:
-        obj = self.model.ToQualifiedName[IAssociation](name).Resolve()
-        if not obj:
-            raise ValueError(f"Association not found: {name}")
-        return obj
+    def get_association(self, name: str) -> IAssociation: # System.UserRoles
+        m = module.ensure_module(self.model, name.split('.')[0])
+        a = name.split('.')[1]
+        # https://github.com/mendix/ExtensionAPI-Samples/blob/7f7625c81d0e15664ad8bc0a3a4433e4f6223b93/API%20Reference/Mendix.StudioPro.ExtensionsAPI.Services/IDomainModelService/GetAllAssociations.md  
+        entityAssociations = self.domainModelService.GetAllAssociations(self.model, m)
+        association = next((ea.Association for ea in entityAssociations
+                  if ea.Association.Name == a), None)
+        # f"{m.Name}.{a}")
+
+        return association
 
     def get_entity(self, name: str) -> IEntity:
         obj = self.model.ToQualifiedName[IEntity](name).Resolve()
@@ -126,8 +133,10 @@ class ActivityDispatcher:
         self, ctx: BuilderContext, act: RetrieveActivity
     ) -> List[IActionActivity]:
         assoc = ctx.utils.get_association(act.association_name)
+
         # Strict adherence to Reference Code Service
         sdk_act = (
+            # https://github.com/mendix/ExtensionAPI-Samples/blob/main/API%20Reference/Mendix.StudioPro.ExtensionsAPI.Services/IMicroflowActivitiesService/CreateAssociationRetrieveSourceActivity.md
             ctx.ctx.microflowActivitiesService.CreateAssociationRetrieveSourceActivity(
                 ctx.app, assoc, act.output_variable, act.source_variable
             )
@@ -188,6 +197,12 @@ class MicroflowBuilder:
         self.ctx = ctx
         self.req = request
         self.mf: Optional[IMicroflow] = None
+        self.logs: List[str] = []  # Added for debugging
+
+    def log(self, msg: str):
+        """Helper to record internal logs"""
+        self.logs.append(f"[Builder-{self.req.full_path}] {msg}")
+
     def _create_data_type(self, type_info: type_microflow.DataTypeDefinition) -> Optional[DataType]:
         type_name = type_info.type_name.lower()
 
@@ -214,13 +229,25 @@ class MicroflowBuilder:
         if type_name == "enumeration":
             return DataType.Enumeration(self.ctx.app.ToQualifiedName[IEnumeration](type_info.qualified_name))
         raise ValueError(f"不支持的数据类型 '{type_name}'。")
+
     def build(self):
         """Orchestrates the creation of the Microflow"""
         # 1. Shell (Header/Params)
-        self.mf = self._build_shell()
+        self.log("Starting build process...")
+        try:
+            self.mf = self._build_shell()
+            self.log(f"Shell created/found: {self.mf.Name}")
+        except Exception as e:
+            self.log(f"Error building shell: {e}")
+            raise
 
         # 2. Body (Activities)
-        self._build_body()
+        try:
+            self._build_body()
+        except Exception as e:
+            self.log(f"Error building body: {e}")
+            self.log(traceback.format_exc())
+            raise
 
         return self.mf
 
@@ -274,6 +301,7 @@ class MicroflowBuilder:
         return self.mf
 
     def _build_body(self):
+        self.log(f"Building body with {len(self.req.activities) if self.req.activities else 0} DTO activities.")
         if not self.req.activities:
             return
 
@@ -281,15 +309,34 @@ class MicroflowBuilder:
         all_sdk_activities: List[IActionActivity] = []
 
         # Loop through DTOs -> Delegate to Dispatcher -> Collect SDK Objects
-        for act_dto in self.req.activities:
-            generated_acts = _dispatcher.dispatch(self.ctx, act_dto)
-            all_sdk_activities.extend(generated_acts)
+        for i, act_dto in enumerate(self.req.activities):
+            try:
+                self.log(f"Dispatching Activity [{i}] Type: {act_dto.activity_type}")
+                generated_acts = _dispatcher.dispatch(self.ctx, act_dto)
+                self.log(f"  -> Generated {len(generated_acts)} SDK items.")
+                all_sdk_activities.extend(generated_acts)
+            except Exception as e:
+                self.log(f"  -> ERROR in dispatch: {str(e)}")
+                raise
 
         # Insertion Strategy (Reverse order for 'TryInsertAfterStart' based on RefCode)
         if all_sdk_activities:
-            csharp_array = Array[IActionActivity](all_sdk_activities[::-1])
-            self.ctx.ctx.microflowService.TryInsertAfterStart(self.mf, csharp_array)
-
+            try:
+                count = len(all_sdk_activities)
+                self.log(f"Converting {count} activities to C# Array (Reversed).")
+                csharp_array = Array[IActionActivity](all_sdk_activities[::-1])
+                
+                self.log("Calling TryInsertAfterStart...")
+                is_inserted = self.ctx.ctx.microflowService.TryInsertAfterStart(self.mf, csharp_array)
+                self.log(f"TryInsertAfterStart returned: {is_inserted}")
+                
+                if not is_inserted:
+                    self.log("WARNING: Activities were NOT inserted. Check SDK logs/constraints.")
+            except Exception as e:
+                self.log(f"ERROR in TryInsertAfterStart: {str(e)}")
+                raise
+        else:
+            self.log("No SDK activities collected, skipping insertion.")
 
 # --- 4. 主入口 ---
 
@@ -320,6 +367,15 @@ def _do_create(ctx, report, req):
 
     # Build execution
     builder = MicroflowBuilder(build_ctx, req)
-    builder.build()
-
-    report.append(f"Success: {req.full_path}")
+    try:
+        builder.build()
+        report.append(f"Success: {req.full_path}")
+    except Exception as e:
+        report.append(f"Failed to build {req.full_path}: {e}")
+        # 即使报错，也先把已有的 builder 日志打出来
+    finally:
+        # 将 builder 内部收集的详细日志合并到主报告中
+        if builder.logs:
+            report.append("--- Builder Logs ---")
+            report.extend(builder.logs)
+            report.append("--------------------")

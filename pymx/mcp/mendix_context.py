@@ -10,7 +10,7 @@
 CurrentApp = None
 messageBoxService = None
 extensionFileService = None
-microflowActivititesService = None
+microflowActivitiesService = None
 microflowExpressionService = None
 microflowService = None
 untypedModelAccessService = None
@@ -38,7 +38,7 @@ def set_mendix_services(
     _CurrentApp,
     _messageBoxService,
     _extensionFileService,
-    _microflowActivititesService,
+    _microflowActivitiesService,
     _microflowExpressionService,
     _microflowService,
     _untypedModelAccessService,
@@ -62,12 +62,12 @@ def set_mendix_services(
     _versionControlService
 ):
     """在服务器启动时，用实际的服务对象填充此模块的全局变量。"""
-    global CurrentApp, messageBoxService, extensionFileService, microflowActivititesService, microflowExpressionService, microflowService, untypedModelAccessService, dockingWindowService, domainModelService, backgroundJobService, configurationService, extensionFeaturesService, httpClientService, nameValidationService, navigationManagerService, pageGenerationService, appService, dialogService, entityService, findResultsPaneService, localRunConfigurationsService, notificationPopupService, runtimeService, selectorDialogService, versionControlService
+    global CurrentApp, messageBoxService, extensionFileService, microflowActivitiesService, microflowExpressionService, microflowService, untypedModelAccessService, dockingWindowService, domainModelService, backgroundJobService, configurationService, extensionFeaturesService, httpClientService, nameValidationService, navigationManagerService, pageGenerationService, appService, dialogService, entityService, findResultsPaneService, localRunConfigurationsService, notificationPopupService, runtimeService, selectorDialogService, versionControlService
 
     CurrentApp = _CurrentApp
     messageBoxService = _messageBoxService
     extensionFileService = _extensionFileService
-    microflowActivititesService = _microflowActivititesService
+    microflowActivitiesService = _microflowActivitiesService
     microflowExpressionService = _microflowExpressionService
     microflowService = _microflowService
     untypedModelAccessService = _untypedModelAccessService
