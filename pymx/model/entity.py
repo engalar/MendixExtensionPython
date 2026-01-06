@@ -28,6 +28,7 @@ importlib.reload(_module)
 
 # region Pydantic Models for Entity Creation
 
+# TODO: dto move to pymx.model.dto.type_entity
 
 class EntityAttribute(BaseModel):
     """Defines the structure for an entity's attribute."""
@@ -40,7 +41,7 @@ class EntityAttribute(BaseModel):
     default_value: Optional[str] = Field(
         None, alias="DefaultValue", description="The default value. For Enumerations, this is the enum key/name. if type is 'DateTime',Value should be empty, '[%CurrentDateTime%]' or a valid date (and time) in the format 'yyyy-mm-dd [hh:mm[:ss]]'.")
     enumeration_qualified_name: Optional[str] = Field(
-        None, alias="EnumerationQualifiedName", description="The qualified name of the enumeration, required if type is 'Enumeration'.")
+        None, alias="EnumerationQualifiedName", description="The qualified name of the enumeration, required if type is 'Enumeration'，由模块名.枚举名组成 例如  'MyFirstModule.Gender' .")
 
     class Config:
         allow_population_by_field_name = True

@@ -268,7 +268,7 @@ class ChangeItem(BaseModel):
         alias="Action", 
         description="操作类型：'Set' (赋值), 'Add' (添加到引用集), 'Remove' (从引用集移除)。默认为 'Set'。"
     )
-    value_expression: str = Field(..., alias="ValueExpression", description="值的微流表达式 (例如 string 需加引号)。")
+    value_expression: str = Field(..., alias="ValueExpression", description="值的微流表达式 (例如 string 需加引号)；枚举，{module name}.{enum name}{item name} e.g. MyFirstModule.Gender.Woman")
 
 
 class ChangeActivity(BaseActivity):
