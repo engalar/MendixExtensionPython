@@ -25,7 +25,7 @@ dependencies = [
     'anyio==4.9.0',
     "pydantic>=2.11.1",
     "typing-extensions==4.13.0",
-    "mcp==1.12.2",
+    "mcp==1.23.0",
     "sse_starlette==1.6.5",
     "setuptools==65.5.0",
 ]
