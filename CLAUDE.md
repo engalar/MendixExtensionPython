@@ -104,6 +104,10 @@ Access Mendix services through `pymx.mcp.mendix_context`:
 **Other Services:**
 - `messageBoxService`, `extensionFileService`, `microflowActivitiesService`, `microflowExpressionService`, `untypedModelAccessService`, `dockingWindowService`, `backgroundJobService`, `configurationService`, `extensionFeaturesService`, `httpClientService`, `nameValidationService`, `navigationManagerService`, `pageGenerationService`, `appService`, `dialogService`, `findResultsPaneService`, `localRunConfigurationsService`, `notificationPopupService`, `runtimeService`, `selectorDialogService`, `versionControlService`
 
+**Document:**
+if you want learn `untypedModelAccessService` please ref
+https://github.com/mendix/ExtensionAPI-Samples/blob/main/API%20Reference/Mendix.StudioPro.ExtensionsAPI.Services/IUntypedModelAccessService.md, same as others
+
 ## Model Creation Pattern
 
 All model modifications follow this pattern:

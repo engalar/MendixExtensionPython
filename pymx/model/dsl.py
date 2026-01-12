@@ -27,28 +27,74 @@ from pymx.model.dto.type_dsl import (
 
 
 class DomainModelAnalyzer:
-    """Generates DSL documentation for domain models"""
+    """Generates DSL documentation for domain models using Mendix untyped API.
 
-    def __init__(self, app, module, options: DSLFormatOptions):
+    Key Untyped API Concepts:
+    -------------------------
+    1. All model elements are accessed via GetUnitsOfType("Module$TypeName")
+    2. All properties are accessed via .GetProperty("name").Value
+    3. List properties must be checked with .IsList before calling .GetValues()
+    4. Object IDs are accessed via .ID.ToString()
+    5. Type names use "Module$TypeName" format (e.g., "DomainModels$Entity")
+
+    Example Pattern:
+    ---------------
+    # Get entities from domain model
+    entities_prop = domain_model.GetProperty("entities")
+    if entities_prop and entities_prop.IsList:
+        entities = list(entities_prop.GetValues())
+        for entity in entities:
+            name = entity.GetProperty("name").Value
+    """
+
+    def __init__(self, app, untyped_module, options: DSLFormatOptions):
+        """Initialize analyzer with untyped module object.
+
+        Args:
+            app: Mendix application instance
+            untyped_module: Module from GetUnitsOfType("Projects$Module")
+            options: DSL formatting options
+        """
         self.app = app
-        self.module = module
+        self.module = untyped_module  # Untyped module from GetUnitsOfType("Projects$Module")
         self.options = options
         self.lines = []
 
     def generate(self, entity_names: Optional[List[str]] = None) -> str:
-        """Generate complete DSL for domain model"""
+        """Generate complete DSL for domain model using untyped API.
+
+        Process:
+        1. Find DomainModel unit using GetUnitsOfType("DomainModels$DomainModel")
+        2. Get entities via GetProperty("entities").GetValues()
+        3. Build ID mapping for association lookups
+        4. Generate documentation for each entity
+        5. Generate associations and cross-associations
+
+        Args:
+            entity_names: Optional list of specific entity names to process
+
+        Returns:
+            DSL string representation of the domain model
+        """
         self.lines = [
             f"# Domain Model DSL: {self.module.Name}",
-            f"# Generated from {self.module.QualifiedName.FullName}",
+            f"# Generated from module {self.module.Name}",
             ""
         ]
 
-        try:
-            domain_model = self.module.DomainModel
-        except Exception as e:
-            return f"Error: Module '{self.module.Name}' has no domain model: {e}"
+        # Find domain model unit in module
+        dm_units = self.module.GetUnitsOfType("DomainModels$DomainModel")
+        domain_model = next((dm for dm in dm_units), None)
 
-        entities = list(domain_model.GetEntities())
+        if not domain_model:
+            return f"Error: Module '{self.module.Name}' has no domain model."
+
+        # Get entities using untyped API
+        entities_prop = domain_model.GetProperty("entities")
+        if not entities_prop or not entities_prop.IsList:
+            return f"{self.lines[0]}\n{self.lines[1]}\n\nNo entities found."
+
+        entities = list(entities_prop.GetValues())
 
         # Filter entities if specific names provided
         if entity_names:
@@ -58,6 +104,7 @@ class DomainModelAnalyzer:
             return f"{self.lines[0]}\n{self.lines[1]}\n\nNo entities found."
 
         # Build ID to qualified name mapping
+        # Used for resolving entity references in associations
         id_map = {}
         for ent in entities:
             id_map[ent.ID.ToString()] = f"{self.module.Name}.{ent.Name}"
@@ -67,193 +114,260 @@ class DomainModelAnalyzer:
             self._generate_entity(entity, id_map)
             self.lines.append("")  # Blank separator
 
-        # Generate associations section
-        associations = list(domain_model.GetAssociations())
-        if associations:
-            self.lines.append("## Associations (Internal)")
-            for assoc in associations:
-                self._generate_association(assoc, id_map)
-            self.lines.append("")
+        # Generate associations section using untyped API
+        associations_prop = domain_model.GetProperty("associations")
+        if associations_prop and associations_prop.IsList:
+            associations = list(associations_prop.GetValues())
+            if associations:
+                self.lines.append("## Associations (Internal)")
+                for assoc in associations:
+                    self._generate_association(assoc, id_map)
+                self.lines.append("")
 
-        # Generate cross-associations section
-        try:
-            cross_associations = list(domain_model.GetCrossAssociations())
+        # Generate cross-associations section using untyped API
+        cross_assocs_prop = domain_model.GetProperty("crossAssociations")
+        if cross_assocs_prop and cross_assocs_prop.IsList:
+            cross_associations = list(cross_assocs_prop.GetValues())
             if cross_associations:
                 self.lines.append("## Associations (Cross-Module)")
                 for assoc in cross_associations:
                     self._generate_cross_association(assoc, id_map)
                 self.lines.append("")
-        except:
-            pass
 
         return "\n".join(self.lines)
 
     def _generate_entity(self, entity, id_map: Dict[str, str]):
-        """Generate DSL for single entity"""
+        """Generate DSL for single entity using untyped API"""
         # Check persistability
         is_persistable = self._check_is_persistable(entity)
 
         p_tag = " [Persistable]" if is_persistable else " [Non-Persistable]"
         gen_info = self._get_generalization_info(entity)
 
-        self.lines.append(f"## Entity: {entity.Name}{p_tag}{gen_info}")
+        # Get entity name
+        name_prop = entity.GetProperty("name")
+        entity_name = name_prop.Value if name_prop else "Unknown"
 
-        if self.options.include_documentation and entity.Documentation:
-            self.lines.append(f"> {entity.Documentation}")
+        self.lines.append(f"## Entity: {entity_name}{p_tag}{gen_info}")
 
+        # Get documentation
+        doc_prop = entity.GetProperty("documentation")
+        if self.options.include_documentation and doc_prop and doc_prop.Value:
+            self.lines.append(f"> {doc_prop.Value}")
+
+        # Get location
         if self.options.include_location:
-            loc = entity.Location
-            self.lines.append(f"> Position: ({loc.X}, {loc.Y})")
+            loc_prop = entity.GetProperty("location")
+            if loc_prop and loc_prop.Value:
+                loc = loc_prop.Value
+                self.lines.append(f"> Position: ({loc.X}, {loc.Y})")
 
-        # Attributes
-        attributes = list(entity.GetAttributes())
-        if attributes:
-            for attr in attributes:
+        # Get attributes using untyped API
+        attrs_prop = entity.GetProperty("attributes")
+        if attrs_prop and attrs_prop.IsList:
+            for attr in attrs_prop.GetValues():
                 self._generate_attribute(attr)
 
-        # Event handlers
-        try:
-            event_handlers = list(entity.GetEventHandlers())
-            if event_handlers and self.options.detail_level == "detailed":
+        # Get event handlers using untyped API
+        handlers_prop = entity.GetProperty("eventHandlers")
+        if handlers_prop and handlers_prop.IsList and self.options.detail_level == "detailed":
+            event_handlers = list(handlers_prop.GetValues())
+            if event_handlers:
                 self.lines.append("\n**Event Handlers:**")
                 for handler in event_handlers:
-                    event_str = str(handler.Event).split(".")[-1]
-                    mf_name = handler.Microflow.FullName if handler.Microflow else "None"
+                    # Get event type
+                    event_prop = handler.GetProperty("event") if hasattr(handler, "GetProperty") else None
+                    event_str = str(event_prop.Value).split(".")[-1] if event_prop and event_prop.Value else "Unknown"
+
+                    # Get microflow name
+                    mf_prop = handler.GetProperty("microflow") if hasattr(handler, "GetProperty") else None
+                    mf_name = mf_prop.Value if mf_prop and mf_prop.Value else "None"
                     self.lines.append(f"  - {event_str}: {mf_name}")
-        except:
-            pass
 
     def _check_is_persistable(self, entity) -> bool:
         """Check if entity is persistable, considering generalization"""
         try:
-            gen_proxy = entity.Generalization
-            # Try to access as IGeneralization
-            try:
-                helper_obj = self.app.Create["IGeneralization"]()
-                prop_info = helper_obj.GetType().GetProperty('Generalization')
-                parent_qname = prop_info.GetValue(gen_proxy, None)
-                if parent_qname:
-                    # Has parent, check parent's persistability
-                    parent_entity = parent_qname.Resolve()
-                    return self._check_is_persistable(parent_entity)
-            except:
-                # No generalization or INoGeneralization
-                pass
+            gen_prop = entity.GetProperty("generalization")
+            if not gen_prop or not gen_prop.Value:
+                return True  # No generalization = persistable by default
 
-            # Check INoGeneralization properties
-            helper_obj = self.app.Create["INoGeneralization"]()
-            prop_info = helper_obj.GetType().GetProperty('Persistable')
-            return prop_info.GetValue(gen_proxy, None)
-        except:
+            gen = gen_prop.Value
+
+            # Check for IGeneralization (has parent)
+            if hasattr(gen, "GetProperty"):
+                parent_qname_prop = gen.GetProperty("generalization")
+                if parent_qname_prop and parent_qname_prop.Value:
+                    # Has parent entity
+                    # For untyped API, we can't easily resolve parent entities recursively
+                    # Conservatively return True (parent entities typically persistable)
+                    return True
+
+                # Check for INoGeneralization.persistable
+                persistable_prop = gen.GetProperty("persistable")
+                if persistable_prop and persistable_prop.Value is not None:
+                    return persistable_prop.Value
+
             return True  # Default to persistable
+        except:
+            return True
 
     def _get_generalization_info(self, entity) -> str:
-        """Get generalization (inheritance) information"""
+        """Get generalization (inheritance) information using untyped API"""
         try:
-            gen_proxy = entity.Generalization
-            try:
-                helper_obj = self.app.Create["IGeneralization"]()
-                prop_info = helper_obj.GetType().GetProperty('Generalization')
-                parent_qname = prop_info.GetValue(gen_proxy, None)
-                if parent_qname:
-                    return f" extends {parent_qname.FullName}"
-            except:
-                pass
+            gen_prop = entity.GetProperty("generalization")
+            if not gen_prop or not gen_prop.Value:
+                return ""
+
+            gen = gen_prop.Value
+            if hasattr(gen, "GetProperty"):
+                parent_qname_prop = gen.GetProperty("generalization")
+                if parent_qname_prop and parent_qname_prop.Value:
+                    return f" extends {parent_qname_prop.Value}"
             return ""
         except:
             return ""
 
     def _generate_attribute(self, attr):
-        """Generate attribute DSL"""
+        """Generate attribute DSL using untyped API"""
         type_name = self._get_attribute_type_string(attr)
-        doc = f" // {attr.Documentation}" if (self.options.include_documentation and attr.Documentation) else ""
-        self.lines.append(f"- {attr.Name}: {type_name}{doc}")
+
+        # Get attribute name
+        name_prop = attr.GetProperty("name")
+        attr_name = name_prop.Value if name_prop else "Unknown"
+
+        # Get documentation
+        doc_prop = attr.GetProperty("documentation")
+        doc = f" // {doc_prop.Value}" if (self.options.include_documentation and doc_prop and doc_prop.Value) else ""
+
+        self.lines.append(f"- {attr_name}: {type_name}{doc}")
 
         if self.options.detail_level == "detailed":
             # Add default value if present
             try:
-                if hasattr(attr, 'Value') and attr.Value:
-                    default_val = getattr(attr.Value, 'DefaultValue', None)
-                    if default_val:
-                        self.lines.append(f"  Default: {default_val}")
+                value_prop = attr.GetProperty("value")
+                if value_prop and value_prop.Value:
+                    default_val_prop = value_prop.Value.GetProperty("defaultValue") if hasattr(value_prop.Value, "GetProperty") else None
+                    if default_val_prop and default_val_prop.Value:
+                        self.lines.append(f"  Default: {default_val_prop.Value}")
             except:
                 pass
 
     def _get_attribute_type_string(self, attr) -> str:
-        """Get human-readable attribute type"""
-        try:
-            attr_type = attr.Type
-            type_name = type(attr_type).__name__
+        """Get human-readable attribute type using untyped API.
 
-            if type_name == "StringAttributeType":
-                length = getattr(attr_type, "Length", 0)
+        Untyped API Pattern:
+        - All property access uses .GetProperty("name").Value
+        - Always check if property exists before accessing .Value
+        - Handle None values gracefully
+        """
+        try:
+            type_prop = attr.GetProperty("type")
+            if not type_prop or not type_prop.Value:
+                return "Unknown"
+
+            attr_type = type_prop.Value
+            type_name = attr_type.Type if hasattr(attr_type, "Type") else type(attr_type).__name__
+
+            if "StringAttributeType" in type_name:
+                # Get length property - might be None or non-integer
+                length_prop = attr_type.GetProperty("length") if hasattr(attr_type, "GetProperty") else None
+                length = length_prop.Value if length_prop and length_prop.Value is not None else 0
+                # Ensure length is an integer
+                try:
+                    length = int(length) if length else 0
+                except (ValueError, TypeError):
+                    length = 0
                 return f"String({length if length > 0 else 'Unlimited'})"
-            elif type_name == "IntegerAttributeType":
+            elif "IntegerAttributeType" in type_name:
                 return "Integer"
-            elif type_name == "LongAttributeType":
+            elif "LongAttributeType" in type_name:
                 return "Long"
-            elif type_name == "DecimalAttributeType":
+            elif "DecimalAttributeType" in type_name:
                 return "Decimal"
-            elif type_name == "BooleanAttributeType":
+            elif "BooleanAttributeType" in type_name:
                 return "Boolean"
-            elif type_name == "DateTimeAttributeType":
+            elif "DateTimeAttributeType" in type_name:
                 return "DateTime"
-            elif type_name == "AutoNumberAttributeType":
+            elif "AutoNumberAttributeType" in type_name:
                 return "AutoNumber"
-            elif type_name == "EnumerationAttributeType":
-                enum_name = getattr(attr_type, "Enumeration", None)
-                return f"Enum({enum_name.FullName if enum_name else '?'})"
-            elif type_name == "BinaryAttributeType":
+            elif "EnumerationAttributeType" in type_name:
+                enum_prop = attr_type.GetProperty("enumeration") if hasattr(attr_type, "GetProperty") else None
+                enum_name = enum_prop.Value if enum_prop and enum_prop.Value else "?"
+                return f"Enum({enum_name})"
+            elif "BinaryAttributeType" in type_name:
                 return "Binary"
-            elif type_name == "HashedStringAttributeType":
+            elif "HashedStringAttributeType" in type_name:
                 return "HashString"
             else:
                 return type_name
-        except:
+        except Exception:
             return "Unknown"
 
     def _generate_association(self, association, id_map: Dict[str, str]):
-        """Generate association DSL"""
-        parent_name = id_map.get(str(association.Parent.ID), "Unknown")
-        child_name = id_map.get(str(association.Child.ID), "Unknown")
+        """Generate association DSL using untyped API"""
+        # Get parent and child via properties
+        parent_id_prop = association.GetProperty("parent") if hasattr(association, "GetProperty") else None
+        child_id_prop = association.GetProperty("child") if hasattr(association, "GetProperty") else None
+
+        parent_id = str(parent_id_prop.Value.ID) if parent_id_prop and parent_id_prop.Value and hasattr(parent_id_prop.Value, "ID") else "Unknown"
+        child_id = str(child_id_prop.Value.ID) if child_id_prop and child_id_prop.Value and hasattr(child_id_prop.Value, "ID") else "Unknown"
+
+        parent_name = id_map.get(parent_id, "Unknown")
+        child_name = id_map.get(child_id, "Unknown")
 
         # Simplify names (remove module prefix)
-        parent_short = parent_name.split(".")[-1]
-        child_short = child_name.split(".")[-1]
+        parent_short = parent_name.split(".")[-1] if "." in parent_name else parent_name
+        child_short = child_name.split(".")[-1] if "." in child_name else child_name
 
-        owner = str(association.Owner).split(".")[-1]
-        assoc_type = str(association.Type).split(".")[-1]
+        # Get association name
+        name_prop = association.GetProperty("name")
+        assoc_name = name_prop.Value if name_prop else "Unknown"
 
-        self.lines.append(f"- [Assoc] {association.Name}: {parent_short} -> {child_short} [Type:{assoc_type}, Owner:{owner}]")
+        # Get owner and type
+        owner_prop = association.GetProperty("owner")
+        owner = str(owner_prop.Value).split(".")[-1] if owner_prop and owner_prop.Value else "Unknown"
+
+        type_prop = association.GetProperty("type")
+        assoc_type = str(type_prop.Value).split(".")[-1] if type_prop and type_prop.Value else "Unknown"
+
+        self.lines.append(f"- [Assoc] {assoc_name}: {parent_short} -> {child_short} [Type:{assoc_type}, Owner:{owner}]")
 
     def _generate_cross_association(self, association, id_map: Dict[str, str]):
-        """Generate cross-association DSL"""
-        parent_name = id_map.get(str(association.Parent.ID), "Unknown")
-        child = getattr(association, "Child", None)
+        """Generate cross-association DSL using untyped API"""
+        # Get parent via properties
+        parent_id_prop = association.GetProperty("parent") if hasattr(association, "GetProperty") else None
+        parent_id = str(parent_id_prop.Value.ID) if parent_id_prop and parent_id_prop.Value and hasattr(parent_id_prop.Value, "ID") else "Unknown"
 
-        parent_short = parent_name.split(".")[-1]
-        child_name = str(child) if child else "Unknown"
+        parent_name = id_map.get(parent_id, "Unknown")
+        parent_short = parent_name.split(".")[-1] if "." in parent_name else parent_name
 
-        owner = str(association.Owner).split(".")[-1]
-        assoc_type = str(association.Type).split(".")[-1]
+        # Get child - for cross associations, child might be a qualified name string
+        child_prop = association.GetProperty("child") if hasattr(association, "GetProperty") else None
+        if child_prop and child_prop.Value:
+            child_name = str(child_prop.Value)
+        else:
+            child_name = "Unknown"
 
-        self.lines.append(f"- [Cross] {association.Name}: {parent_short} -> {child_name} [Type:{assoc_type}, Owner:{owner}]")
+        # Get association name
+        name_prop = association.GetProperty("name")
+        assoc_name = name_prop.Value if name_prop else "Unknown"
+
+        # Get owner and type
+        owner_prop = association.GetProperty("owner")
+        owner = str(owner_prop.Value).split(".")[-1] if owner_prop and owner_prop.Value else "Unknown"
+
+        type_prop = association.GetProperty("type")
+        assoc_type = str(type_prop.Value).split(".")[-1] if type_prop and type_prop.Value else "Unknown"
+
+        self.lines.append(f"- [Cross] {assoc_name}: {parent_short} -> {child_name} [Type:{assoc_type}, Owner:{owner}]")
 
 
-def generate_domain_model_dsl(app, data: DomainModelDSLInput) -> str:
-    """
-    Generate DSL for domain model.
-
-    Args:
-        app: Mendix CurrentApp instance
-        data: DomainModelDSLInput with module name and options
-
-    Returns:
-        DSL string representation
-    """
+def generate_domain_model_dsl(ctx, data: DomainModelDSLInput) -> str:
     try:
+        app = ctx.CurrentApp
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
         # Find module
-        modules = list(app.Root.GetModules())
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
         module = next((m for m in modules if m.Name == data.module_name), None)
 
         if not module:

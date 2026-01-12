@@ -39,7 +39,7 @@ async def tool_domain_model_dsl(data: DomainModelDSLInput) -> str:
     Returns:
         DSL string showing entities, attributes, associations, and inheritance
     """
-    return dsl.generate_domain_model_dsl(ctx.CurrentApp, data)
+    return dsl.generate_domain_model_dsl(ctx, data)
 
 
 @mcp.tool(
@@ -128,9 +128,11 @@ def resource_domain_model_dsl(module_name: str) -> str:
     Generate DomainModel DSL for a module via resource URL.
 
     Example: model://dsl/domain/MyModule.mxdomain.txt
+
+    使用scripts/test_mcp_studiopro.py进行测试
     """
     data = DomainModelDSLInput(ModuleName=module_name)
-    return dsl.generate_domain_model_dsl(ctx.CurrentApp, data)
+    return dsl.generate_domain_model_dsl(ctx, data)
 
 
 @mcp.resource(
