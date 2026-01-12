@@ -12,7 +12,6 @@ class DataTypeDefinition(BaseModel):
     """
     定义一个 Mendix 数据类型。
     """
-    model_config = ConfigDict(populate_by_name=True)
 
     type_name: Literal[
         "Enumeration", "Decimal", "Binary", "Boolean", "DateTime",
@@ -36,7 +35,6 @@ class MicroflowParameter(BaseModel):
     """
     定义微流的输入参数。
     """
-    model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(..., alias="Name", description="参数变量名称。")
     type: DataTypeDefinition = Field(..., alias="Type", description="参数的数据类型。")
@@ -46,14 +44,12 @@ class MicroflowParameter(BaseModel):
 # 2. Activity DTOs (活动定义)
 # ==========================================
 
-class BaseActivity(BaseModel):
-    model_config = ConfigDict(populate_by_name=True) 
+class BaseActivity(BaseModel): 
     activity_type: str = Field(..., alias="ActivityType", description="活动的类型标识符。")
 
 
 class SortItem(BaseModel):
     """数据库检索时的排序规则"""
-    model_config = ConfigDict(populate_by_name=True)
     attribute_name: str = Field(..., alias="AttributeName", description="用于排序的属性名称。")
     ascending: bool = Field(True, alias="Ascending", description="是否升序排列。默认为 True。")
 
@@ -257,7 +253,6 @@ class ListOperationActivity(BaseActivity):
 
 class ChangeItem(BaseModel):
     """定义单个属性或关联的修改操作。"""
-    model_config = ConfigDict(populate_by_name=True)
     
     # 支持 Attribute 或 Association
     attribute_name: Optional[str] = Field(None, alias="AttributeName", description="要修改的属性名。")
@@ -327,7 +322,6 @@ ActivityUnion = Annotated[
 
 class MicroflowRequest(BaseModel):
     """创建微流的请求体。"""
-    model_config = ConfigDict(populate_by_name=True)
 
     full_path: str = Field(..., alias="FullPath", description="微流的完整路径 (ModuleName/Folder/Name)。")
     return_type: DataTypeDefinition = Field(..., alias="ReturnType", description="微流返回值类型。")
@@ -343,5 +337,4 @@ class MicroflowRequest(BaseModel):
 
 
 class CreateMicroflowsToolInput(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
     requests: List[MicroflowRequest] = Field(..., description="要创建的微流请求列表。")

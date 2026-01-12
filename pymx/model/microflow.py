@@ -653,9 +653,9 @@ class MicroflowBuilder:
                 self.log(f"ERROR in TryInsertAfterStart: {str(e)}")
                 raise
 
-def create_microflows(ctx, tool_input: CreateMicroflowsToolInput, tx=None) -> str:
+def create_microflows(ctx, requests: List[type_microflow.MicroflowRequest], tx=None) -> str:
     report = ["Starting..."]
-    for req in tool_input.requests:
+    for req in requests:
         if tx:
             _do_create(ctx, report, req)
             continue
