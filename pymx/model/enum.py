@@ -72,17 +72,14 @@ def create_demo_input() -> CreateEnumerationsToolInput:
     return CreateEnumerationsToolInput(requests=demo_requests)
 
 
-async def create_enumerations(current_app, tool_input: CreateEnumerationsToolInput) -> str:
-    """
-    遍历枚举请求，创建/更新它们，并返回纯文本报告。
-    """
+async def create_enumerations(current_app, requests: List[EnumerationRequest]) -> str:
     report_lines = ["Starting enumeration creation process..."]
     success_count = 0
     failure_count = 0
 
-    for i, request in enumerate(tool_input.requests):
+    for i, request in enumerate(requests):
         report_lines.append(
-            f"\n--- Processing Request {i+1}/{len(tool_input.requests)}: {request.full_path} ---")
+            f"\n--- Processing Request {i+1}/{len(requests)}: {request.full_path} ---")
 
         try:
             with TransactionManager(current_app, f"Create/Update Enumeration {request.full_path}"):
