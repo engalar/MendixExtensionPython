@@ -12,6 +12,8 @@ import importlib
 # Import business logic and DTOs
 from pymx.model import dsl
 importlib.reload(dsl)
+from pymx.model.dto import type_dsl
+importlib.reload(type_dsl)
 from pymx.model.dto.type_dsl import (
     DomainModelDSLInput,
     MicroflowDSLInput,
@@ -39,7 +41,7 @@ async def tool_domain_model_dsl(data: DomainModelDSLInput) -> str:
     Returns:
         DSL string showing entities, attributes, associations, and inheritance
     """
-    return dsl.generate_domain_model_dsl(ctx, data)
+    return dsl.generate_domain_model_dsl(ctx.CurrentApp, data)
 
 
 @mcp.tool(
@@ -132,7 +134,7 @@ def resource_domain_model_dsl(module_name: str) -> str:
     使用scripts/test_mcp_studiopro.py进行测试
     """
     data = DomainModelDSLInput(ModuleName=module_name)
-    return dsl.generate_domain_model_dsl(ctx, data)
+    return dsl.generate_domain_model_dsl(ctx.CurrentApp, data)
 
 
 @mcp.resource(

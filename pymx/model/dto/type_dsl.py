@@ -102,3 +102,6 @@ class ModuleTreeDSLInput(BaseModel):
         False, alias="IncludeSystemElements",
         description="Include system-generated elements in tree"
     )
+    format_options: DSLFormatOptions = Field(
+        default_factory=DSLFormatOptions, alias="FormatOptions"
+    )

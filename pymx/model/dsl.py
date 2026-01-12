@@ -362,9 +362,9 @@ class DomainModelAnalyzer:
         self.lines.append(f"- [Cross] {assoc_name}: {parent_short} -> {child_name} [Type:{assoc_type}, Owner:{owner}]")
 
 
-def generate_domain_model_dsl(ctx, data: DomainModelDSLInput) -> str:
+def generate_domain_model_dsl(app, data: DomainModelDSLInput) -> str:
     try:
-        app = ctx.CurrentApp
+        from pymx.mcp import mendix_context as ctx
         untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
         # Find module
         modules = untypedRoot.GetUnitsOfType("Projects$Module")
@@ -632,6 +632,7 @@ class MicroflowAnalyzer:
 def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
     """Generate DSL for microflow"""
     try:
+        from pymx.mcp import mendix_context as ctx
         # Parse qualified name
         parts = data.qualified_name.split(".")
         if len(parts) < 2:
@@ -640,8 +641,9 @@ def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
         module_name = parts[0]
         mf_name = parts[-1]
 
-        # Find module
-        modules = list(app.Root.GetModules())
+        # Find module using untyped API (like generate_domain_model_dsl)
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
         module = next((m for m in modules if m.Name == module_name), None)
 
         if not module:
@@ -762,6 +764,7 @@ class PageAnalyzer:
 def generate_page_dsl(app, data: PageDSLInput) -> str:
     """Generate DSL for page"""
     try:
+        from pymx.mcp import mendix_context as ctx
         # Parse qualified name
         parts = data.qualified_name.split(".")
         if len(parts) < 2:
@@ -770,8 +773,9 @@ def generate_page_dsl(app, data: PageDSLInput) -> str:
         module_name = parts[0]
         page_name = parts[-1]
 
-        # Find module
-        modules = list(app.Root.GetModules())
+        # Find module using untyped API (like generate_domain_model_dsl)
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
         module = next((m for m in modules if m.Name == module_name), None)
 
         if not module:
@@ -877,6 +881,7 @@ class WorkflowAnalyzer:
 def generate_workflow_dsl(app, data: WorkflowDSLInput) -> str:
     """Generate DSL for workflow"""
     try:
+        from pymx.mcp import mendix_context as ctx
         # Parse qualified name
         parts = data.qualified_name.split(".")
         if len(parts) < 2:
@@ -885,8 +890,9 @@ def generate_workflow_dsl(app, data: WorkflowDSLInput) -> str:
         module_name = parts[0]
         wf_name = parts[-1]
 
-        # Find module
-        modules = list(app.Root.GetModules())
+        # Find module using untyped API (like generate_domain_model_dsl)
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
         module = next((m for m in modules if m.Name == module_name), None)
 
         if not module:
@@ -997,7 +1003,7 @@ class ModuleTreeAnalyzer:
         for folder in sorted(direct_folders, key=lambda x: x.GetProperty("name").Value if hasattr(x, "GetProperty") and x.GetProperty("name") else ""):
             folder_name_prop = folder.GetProperty("name") if hasattr(folder, "GetProperty") else None
             folder_name = folder_name_prop.Value if folder_name_prop else ""
-            self.lines.append(f"{'  ' * indent}📁 {folder_name}")
+            self.lines.append(f"{'  ' * indent}[Folder] {folder_name}")
             self._render_container(folder, indent + 1, include_system)
 
     def _collect_descendant_ids(self, folder, id_set: Set[str]):
@@ -1014,8 +1020,10 @@ class ModuleTreeAnalyzer:
 def generate_module_tree_dsl(app, data: ModuleTreeDSLInput) -> str:
     """Generate DSL for module file/folder tree"""
     try:
-        # Find module
-        modules = list(app.Root.GetModules())
+        from pymx.mcp import mendix_context as ctx
+        # Find module using untyped API (like generate_domain_model_dsl)
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
         module = next((m for m in modules if m.Name == data.module_name), None)
 
         if not module:
