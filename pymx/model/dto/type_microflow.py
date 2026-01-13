@@ -8,6 +8,10 @@ from typing_extensions import Self
 # 1. 基础配置与通用类型
 # ==========================================
 
+_PRIMITIVE_TYPES: Set[str] = {
+    "Decimal", "Binary", "Boolean", "DateTime", "Integer", "Long", "String",
+}
+
 class DataTypeDefinition(BaseModel):
     """
     定义一个 Mendix 数据类型。
@@ -17,7 +21,7 @@ class DataTypeDefinition(BaseModel):
         "Enumeration", "Decimal", "Binary", "Boolean", "DateTime",
         "Integer", "Long", "String", "Void", "Object", "List",
     ] = Field(..., alias="TypeName", description="Mendix 数据类型的名称 (例如 'String', 'Object', 'List')。")
-    
+
     qualified_name: Optional[str] = Field(
         None,
         alias="QualifiedName",
@@ -25,9 +29,12 @@ class DataTypeDefinition(BaseModel):
     )
 
     @model_validator(mode="after")
-    def check_qualified_name_is_present(self) -> Self:
-        if self.type_name in ("Object", "List", "Enumeration") and not self.qualified_name:
-            raise ValueError(f"'{self.type_name}' 类型需要一个 'QualifiedName'。")
+    def check_qualified_name_logic(self) -> Self:
+        if self.type_name in ("Object", "List", "Enumeration"):
+            if not self.qualified_name:
+                raise ValueError(f"'{self.type_name}' 类型需要一个 'QualifiedName'。")
+            if self.type_name == "List" and self.qualified_name in _PRIMITIVE_TYPES:
+                raise ValueError(f"列表类型不支持基础类型 '{self.qualified_name}'。请使用实体类型，例如 'MyModule.MyEntity'。")
         return self
 
 
@@ -58,7 +65,7 @@ class SortItem(BaseModel):
 
 class InitialValueItem(BaseModel):
     attribute_name: str = Field(..., alias="AttributeName", description="属性名称")
-    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式")
+    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式。规则：字符串需用单引号包裹 (e.g., `'Hello'`)；变量引用需加 `$` (e.g., `$myVar`)；属性访问用 `/` (e.g., `$MyObj/Attr`)；枚举格式为 `Module.Enum.Value`。")
     # API不支持操作类型，可以生成后人工在IDE调整
 
 class CreateObjectActivity(BaseActivity):
@@ -91,8 +98,8 @@ class RetrieveActivity(BaseActivity):
     activity_type: Literal["Retrieve"] = Field("Retrieve", alias="ActivityType")
 
     source_type: Literal["Association", "Database"] = Field(
-        "Association", 
-        alias="SourceType", 
+        "Association",
+        alias="SourceType",
         description="获取源类型：'Association' (通过关联) 或 'Database' (直接查询数据库)。"
     )
 
@@ -101,36 +108,36 @@ class RetrieveActivity(BaseActivity):
 
     # Mode: Association
     source_variable: Optional[str] = Field(
-        None, 
-        alias="SourceVariable", 
-        description="[Association模式必填] 持有关联对象的变量名。"
+        None,
+        alias="SourceVariable",
+        description="当 SourceType 为 'Association' 时必填。持有关联对象的变量名 (e.g., $myObject)。"
     )
     association_name: Optional[str] = Field(
-        None, 
-        alias="AssociationName", 
-        description="[Association模式必填] 关联名称 (例如 'Module.Entity_Association')。"
+        None,
+        alias="AssociationName",
+        description="当 SourceType 为 'Association' 时必填。关联名称 (格式: Module.Association)。"
     )
 
     # Mode: Database
     entity_name: Optional[str] = Field(
-        None, 
-        alias="EntityName", 
-        description="[Database模式必填] 要检索的实体名称 (例如 'Module.Entity')。"
+        None,
+        alias="EntityName",
+        description="当 SourceType 为 'Database' 时必填。要检索的实体名称 (格式: Module.Entity)。"
     )
     xpath_constraint: Optional[str] = Field(
-        None, 
-        alias="XPathConstraint", 
-        description="[Database模式可选] XPath 过滤条件 (例如 '[Name = $Variable]')。"
+        None,
+        alias="XPathConstraint",
+        description="[Database模式可选] XPath 过滤条件。规则：字符串需用单引号包裹 (e.g., `'[Name = \\'John\\']'`)；变量引用需加 `$` (e.g., `'[Name = $currentName]'`)。"
     )
     # Range
     range_index: Optional[str] = Field(
-        None, 
-        alias="RangeIndex", 
+        None,
+        alias="RangeIndex",
         description="[Database模式可选] 分页起始索引的表达式 (默认 '0')。"
     )
     range_amount: Optional[str] = Field(
-        None, 
-        alias="RangeAmount", 
+        None,
+        alias="RangeAmount",
         description="[Database模式可选] 检索数量的表达式 (如果不填则检索全部/默认行为)。"
     )
     retrieve_just_first_item: Optional[bool] = Field(
@@ -139,10 +146,20 @@ class RetrieveActivity(BaseActivity):
         description="If true, only the first item matching is returned. If false, all items are returned."
     )
     sorting: List[SortItem] = Field(
-        default=[], 
-        alias="Sorting", 
+        default=[],
+        alias="Sorting",
         description="[Database模式可选] 排序规则列表。"
     )
+
+    @model_validator(mode="after")
+    def check_source_requirements(self) -> Self:
+        if self.source_type == "Database":
+            if not self.entity_name:
+                raise ValueError("当 SourceType 为 'Database' 时, 'EntityName' 必填。")
+        elif self.source_type == "Association":
+            if not self.source_variable or not self.association_name:
+                raise ValueError("当 SourceType 为 'Association' 时, 'SourceVariable' 和 'AssociationName' 必填。")
+        return self
 
 
 # --- List Specific Activities ---
@@ -166,7 +183,13 @@ class SortListActivity(BaseActivity):
     activity_type: Literal["SortList"] = Field("SortList", alias="ActivityType")
     list_variable: str = Field(..., alias="ListVariable")
     output_variable: str = Field(..., alias="OutputVariable")
-    sorting: List[SortItem] = Field(default=[], alias="Sorting")
+    sorting: List[SortItem] = Field(..., alias="Sorting", description="排序规则列表，不能为空。")
+
+    @field_validator("sorting")
+    def check_sorting_not_empty(cls, v: List[SortItem]) -> List[SortItem]:
+        if not v:
+            raise ValueError("'Sorting' 列表不能为空。")
+        return v
 
 class FilterListActivity(BaseActivity):
     """列表过滤"""
@@ -175,7 +198,7 @@ class FilterListActivity(BaseActivity):
     list_variable: str = Field(..., alias="ListVariable")
     output_variable: str = Field(..., alias="OutputVariable")
     member_name: str = Field(..., alias="MemberName", description="属性名或关联名")
-    expression: str = Field(..., alias="Expression", description="过滤表达式")
+    expression: str = Field(..., alias="Expression", description="过滤表达式。对于属性，表达式为比较操作 (e.g., `> 18`, `= 'Completed'`)。")
 
 class FindListActivity(BaseActivity):
     """列表查找 (Find)"""
@@ -183,9 +206,20 @@ class FindListActivity(BaseActivity):
     find_by: Literal["Expression", "Attribute", "Association"] = Field(..., alias="FindBy")
     list_variable: str = Field(..., alias="ListVariable")
     output_variable: str = Field(..., alias="OutputVariable")
+
     # Attribute/Association 模式需要 MemberName
-    member_name: Optional[str] = Field(None, alias="MemberName")
-    expression: str = Field(..., alias="Expression", description="查找表达式")
+    member_name: Optional[str] = Field(None, alias="MemberName", description="当 FindBy 为 'Attribute' 或 'Association' 时必填。")
+    expression: Optional[str] = Field(None, alias="Expression", description="当 FindBy 为 'Expression' 时必填。查找表达式。规则：字符串需用单引号包裹；变量引用需加 `$`。")
+
+    @model_validator(mode="after")
+    def check_find_by_requirements(self) -> Self:
+        if self.find_by in ("Attribute", "Association"):
+            if not self.member_name:
+                raise ValueError(f"当 FindBy 为 '{self.find_by}' 时, 'MemberName' 必填。")
+        elif self.find_by == "Expression":
+            if not self.expression:
+                raise ValueError("当 FindBy 为 'Expression' 时, 'Expression' 必填。")
+        return self
 
 
 # --- Existing Activities (Expanded) ---
@@ -198,7 +232,7 @@ class AggregateListActivity(BaseActivity):
     )
 
     input_list_variable: str = Field(
-        ..., alias="InputListVariable", description="要聚合的列表变量名。"
+        ..., alias="ListVariable", description="要聚合的列表变量名。"
     )
     output_variable: str = Field(
         ..., alias="OutputVariable", description="存储结果的变量名。"
@@ -209,7 +243,7 @@ class AggregateListActivity(BaseActivity):
     attribute: Optional[str] = Field(
         None,
         alias="Attribute",
-        description="[Sum/Avg/Min/Max 必填] 要进行计算的属性名。必需是数字属性",
+        description="当 Function 为 'Sum', 'Average', 'Minimum', 'Maximum' 时必填。要进行计算的属性名。必需是数字属性。",
         examples="MyFirstModule.MyEntity.MyAttribute"
     )
     result_type: Optional[DataTypeDefinition] = Field(
@@ -230,6 +264,13 @@ class AggregateListActivity(BaseActivity):
         examples="$currentObject/Price"
     )
 
+    @model_validator(mode="after")
+    def check_attribute_requirement(self) -> Self:
+        if self.function in ("Sum", "Average", "Minimum", "Maximum"):
+            if not self.attribute:
+                raise ValueError(f"当 Function 为 '{self.function}' 时, 'Attribute' 必填。")
+        return self
+
 
 class ListOperationActivity(BaseActivity):
     """列表操作活动 (List Operation)，如 Head, Tail, Union, Sort 等。"""
@@ -241,7 +282,7 @@ class ListOperationActivity(BaseActivity):
         alias="OperationType", 
         description="操作类型。"
     )
-    input_list_variable: str = Field(..., alias="InputListVariable", description="主要输入列表变量。")
+    input_list_variable: str = Field(..., alias="ListVariable", description="主要输入列表变量。")
     output_variable: str = Field(..., alias="OutputVariable", description="存储结果的变量名。")
     
     binary_operation_list_variable: Optional[str] = Field(
@@ -253,17 +294,24 @@ class ListOperationActivity(BaseActivity):
 
 class ChangeItem(BaseModel):
     """定义单个属性或关联的修改操作。"""
-    
+
     # 支持 Attribute 或 Association
-    attribute_name: Optional[str] = Field(None, alias="AttributeName", description="要修改的属性名。")
-    association_name: Optional[str] = Field(None, alias="AssociationName", description="要修改的关联名。")
-    
+    attribute_name: Optional[str] = Field(None, alias="AttributeName", description="要修改的属性名。与 association_name 互斥。")
+    association_name: Optional[str] = Field(None, alias="AssociationName", description="要修改的关联名 (格式: Module.Association)。与 attribute_name 互斥。")
+
     action: Literal["Set", "Add", "Remove"] = Field(
-        "Set", 
-        alias="Action", 
+        "Set",
+        alias="Action",
         description="操作类型：'Set' (赋值), 'Add' (添加到引用集), 'Remove' (从引用集移除)。默认为 'Set'。"
     )
-    value_expression: str = Field(..., alias="ValueExpression", description="值的微流表达式 (例如 string 需加引号)；枚举，{module name}.{enum name}{item name} e.g. MyFirstModule.Gender.Woman")
+    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式。规则：字符串需用单引号包裹 (e.g., `'Hello'`)；变量引用需加 `$` (e.g., `$myVar`)；属性访问用 `/` (e.g., `$MyObj/Attr`)；枚举格式为 `Module.Enum.Value`。")
+
+    @model_validator(mode="after")
+    def check_attribute_or_association(self) -> Self:
+        if (self.attribute_name is None and self.association_name is None) or \
+           (self.attribute_name is not None and self.association_name is not None):
+            raise ValueError("必须且只能提供 'AttributeName' 或 'AssociationName' 中的一个。")
+        return self
 
 
 class ChangeActivity(BaseActivity):
@@ -272,15 +320,21 @@ class ChangeActivity(BaseActivity):
     可以修改属性或关联，并选择是否提交。
     """
     activity_type: Literal["Change"] = Field("Change", alias="ActivityType")
-    
+
     variable_name: str = Field(..., alias="VariableName", description="要修改的对象变量名。")
     entity_name: str = Field(..., alias="EntityName", description="对象的实体类型 (用于解析属性)。")
-    changes: List[ChangeItem] = Field(default=[], alias="Changes", description="变更列表。")
+    changes: List[ChangeItem] = Field(..., alias="Changes", description="变更列表，不能为空。")
     commit: Literal["No", "Yes", "YesWithoutEvents"] = Field(
-        "No", 
-        alias="Commit", 
+        "No",
+        alias="Commit",
         description="是否提交对象到数据库。"
     )
+
+    @field_validator("changes")
+    def check_changes_not_empty(cls, v: List[ChangeItem]) -> List[ChangeItem]:
+        if not v:
+            raise ValueError("'Changes' 列表不能为空。")
+        return v
 
 
 class CommitActivity(BaseActivity):
@@ -325,15 +379,22 @@ class MicroflowRequest(BaseModel):
 
     full_path: str = Field(..., alias="FullPath", description="微流的完整路径 (ModuleName/Folder/Name)。")
     return_type: DataTypeDefinition = Field(..., alias="ReturnType", description="微流返回值类型。")
-    return_exp: Optional[str] = Field(None, alias="ReturnExp", description="返回值表达式 (如果是 Void 则不填)。")
+    return_exp: Optional[str] = Field(None, alias="ReturnExp", description="返回值表达式。规则：字符串需用单引号包裹；变量引用需加 `$`。当返回类型为 Void 时，应为 null 或空字符串。")
     parameters: List[MicroflowParameter] = Field(default=[], alias="Parameters", description="微流输入参数列表。")
-    activities: List[ActivityUnion] = Field(default=[], alias="Activities", description="微流活动列表，按顺序执行。")
+    activities: List[ActivityUnion] = Field(default=[], alias="Activities", description="微流活动列表，按顺序执行。变量在使用前必须先通过参数或先前活动的 OutputVariable 定义。")
 
     @field_validator("full_path")
     def validate_full_path(cls, v: str):
         if not v or len(v.split("/")) < 2:
             raise ValueError("FullPath 必须至少包含 'ModuleName/MicroflowName'。")
         return v
+
+    @model_validator(mode="after")
+    def check_void_return_exp(self) -> Self:
+        if self.return_type.type_name == "Void":
+            if self.return_exp is not None and self.return_exp != "":
+                raise ValueError("当 ReturnType 为 'Void' 时, 'ReturnExp' 必须为 null 或空字符串。")
+        return self
 
 
 class CreateMicroflowsToolInput(BaseModel):

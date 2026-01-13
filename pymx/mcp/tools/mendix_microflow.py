@@ -21,14 +21,14 @@ importlib.reload(complex_dto)
 
 class SimpleParameter(BaseModel):
     Name: str = Field(description="参数变量名")
-    Type: str = Field(description="参数数据类型，例如 'String', 'Integer', 'Boolean', 'MyModule.Customer'")
+    Type: str = Field(description="参数数据类型。支持基本类型 (例如 'String', 'Integer', 'Boolean')，以及引用类型。引用类型可以是单一实体 (例如 'MyModule.Customer') 或实体列表 (例如 'List(MyModule.Order)')。")
 
 class SimpleChangeItem(BaseModel):
     """用于 Change 和 CreateObject 的赋值项"""
-    AttributeName: Optional[str] = Field(None, description="要赋值的属性名 (例如 'Name', 'Age')")
-    AssociationName: Optional[str] = Field(None, description="要设置的关联名 (例如 'MyModule.Customer_Order')")
-    Action: Literal["Set", "Add", "Remove"] = Field("Set", description="操作类型，默认为 Set")
-    ValueExpression: str = Field(..., description="值的微流表达式。注意：字符串值必须用单引号包裹 (例如 'Hello')，变量使用 $前缀 (例如 $MyVar)")
+    AttributeName: Optional[str] = Field(None, description="要赋值的属性名 (格式: 'AttributeName')。与 AssociationName 互斥，只能提供其中之一。")
+    AssociationName: Optional[str] = Field(None, description="要设置的关联名 (格式: 'MyModule.AssociationName')。与 AttributeName 互斥，只能提供其中之一。")
+    Action: Literal["Set", "Add", "Remove"] = Field("Set", description="操作类型，默认为 Set。Set 用于一对一或多对一，Add/Remove 用于一对多或多对多。")
+    ValueExpression: str = Field(..., description="值的微流表达式。规则：字符串值必须用单引号包裹 (例如 'Hello World')；变量引用使用 $ 前缀 (例如 $MyVar)；通过 / 访问对象属性 (例如 $MyObject/Attribute)；枚举值使用完全限定名 (例如 MyModule.MyEnumeration.EnumValue)。")
 
 class SimpleSortItem(BaseModel):
     AttributeName: str = Field(..., description="排序依据的属性名")
@@ -44,48 +44,48 @@ class UnifiedActivity(BaseModel):
         "Retrieve", "Change", "CreateObject", "Commit", "Delete", "Rollback",
         "CreateList", "ChangeList", "SortList", "FilterList", "FindList",
         "AggregateList", "ListOperation"
-    ] = Field(..., description="必填。活动类型。根据此类型决定填写下方哪些字段。")
+    ] = Field(..., description="必填。活动类型。根据此类型决定填写下方哪些字段。例如：'Retrieve' (获取数据，需要 EntityName, OutputVariable, SourceType)；'Change' (修改对象，需要 VariableName, Changes)；'CreateObject' (创建对象，需要 EntityName, OutputVariable)。")
 
     # --- 1. 核心对象/变量相关 (Core) ---
-    VariableName: Optional[str] = Field(None, description="[Change/Commit/Delete/Rollback 必填] 要操作的对象变量名。")
-    EntityName: Optional[str] = Field(None, description="[CreateObject/CreateList/Retrieve(Database) 必填] 实体全名，格式: 'MyModule.EntityName'。")
-    OutputVariable: Optional[str] = Field(None, description="[Retrieve/Create/ListOps/Aggregate 必填] 用于存储结果的变量名。")
+    VariableName: Optional[str] = Field(None, description="要操作的对象变量名。在 Change, Commit, Delete, Rollback 活动中是必填项。在 Retrieve, CreateObject, CreateList, ChangeList, ListOperation, FilterList, FindList, AggregateList 活动中，它作为输入或输出变量名。")
+    EntityName: Optional[str] = Field(None, description="实体全名，格式: 'MyModule.EntityName'。在 CreateObject, CreateList, Retrieve (当 SourceType 为 Database) 活动中是必填项。")
+    OutputVariable: Optional[str] = Field(None, description="用于存储活动结果的变量名。在 Retrieve, CreateObject, CreateList, ListOperation, FilterList, FindList, AggregateList 活动中是必填项。")
     
     # --- 2. Retrieve (获取数据) 专用 ---
-    SourceType: Literal["Association", "Database"] = Field("Association", description="[Retrieve] 数据源类型。'Association'(通过关联) 或 'Database'(查库)。")
-    SourceVariable: Optional[str] = Field(None, description="[Retrieve-Association 必填] 拥有关联的源对象变量名。")
-    AssociationName: Optional[str] = Field(None, description="[Retrieve-Association 必填] 关联名称，格式: 'MyModule.Assoc_Name'。")
-    XPathConstraint: Optional[str] = Field(None, description="[Retrieve-Database 可选] XPath 约束，例如 '[Name = $Var]'。")
+    SourceType: Literal["Association", "Database"] = Field("Association", description="[Retrieve 必填] 数据检索的源类型。'Association' (通过关联) 或 'Database' (查库)。若为 'Database'，EntityName 必填；若为 'Association'，SourceVariable 和 AssociationName 必填。")
+    SourceVariable: Optional[str] = Field(None, description="[Retrieve-Association 必填] 当 SourceType 为 'Association' 时，指定作为关联源的变量名称 (例如 $myObject)。")
+    AssociationName: Optional[str] = Field(None, description="[Retrieve-Association 必填] 当 SourceType 为 'Association' 时，关联的完全限定名称 (格式: 'MyModule.AssociationName')。")
+    XPathConstraint: Optional[str] = Field(None, description="[Retrieve-Database 可选] XPath 约束表达式，用于过滤结果。例如 `[Attribute = 'Value']`。遵循 Mendix 表达式语法：字符串值必须用单引号包裹；变量引用使用 $ 前缀；通过 / 访问对象属性。")
     RetrieveJustFirstItem: Optional[bool] = Field(False, description="[Retrieve] 是否只获取第一条。")
-    Sorting: Optional[List[SimpleSortItem]] = Field(None, description="[Retrieve/SortList] 排序规则列表。")
+    Sorting: Optional[List[SimpleSortItem]] = Field(None, description="[Retrieve/SortList] 排序规则列表。在 SortList 活动中，Sorting 列表不能为空。例如：`[{'AttributeName': 'Name', 'Ascending': True}]`。")
 
     # --- 3. Change / CreateObject (修改/创建) 专用 ---
-    Commit: Literal["No", "Yes", "YesWithoutEvents"] = Field("No", description="[Change/CreateObject] 是否提交到数据库。")
-    RefreshClient: bool = Field(False, description="[Change/CreateObject] 是否刷新客户端。")
-    Changes: Optional[List[SimpleChangeItem]] = Field(None, description="[Change] 变更项列表。")
-    InitialValues: Optional[List[SimpleChangeItem]] = Field(None, description="[CreateObject] 初始值列表。结构同 Changes。")
+    Commit: Literal["No", "Yes", "YesWithoutEvents"] = Field("No", description="[Change/CreateObject 可选] 是否提交更改到数据库。默认为 No。'Yes' (提交并触发事件), 'YesWithoutEvents' (提交但不触发事件)。")
+    RefreshClient: bool = Field(False, description="[Change/CreateObject/Rollback 可选] 是否在活动执行后刷新客户端用户界面。默认为 False。")
+    Changes: Optional[List[SimpleChangeItem]] = Field(None, description="[Change 必填] 要应用的更改列表，每个项是一个 SimpleChangeItem。此列表不能为空。")
+    InitialValues: Optional[List[SimpleChangeItem]] = Field(None, description="[CreateObject 可选] 用于新创建对象的初始值列表，每个项包含 AttributeName 和 ValueExpression。例如：`[{'AttributeName': 'Name', 'ValueExpression': ''New Item''}]`。")
 
     # --- 4. List Operations (列表操作) 专用 ---
-    ListVariable: Optional[str] = Field(None, description="[ListOperation/Filter/Find/Sort/ChangeList] 输入列表的变量名。")
-    InputListVariable: Optional[str] = Field(None, description="[Aggregate/ListOperation] 输入列表的变量名 (同 ListVariable，填其中一个即可)。")
-    Operation: Optional[str] = Field(None, description="[ChangeList 必填] 操作类型: 'Set', 'Add', 'Remove', 'Clear'。")
-    OperationType: Optional[str] = Field(None, description="[ListOperation 必填] 操作类型: 'Head', 'Tail', 'Union', 'Intersect', 'Contains'。")
-    BinaryOperationListVariable: Optional[str] = Field(None, description="[ListOperation-Union/Intersect] 第二个列表的变量名。")
+    ListVariable: Optional[str] = Field(None, description="[ListOperation/Filter/Find/Sort/ChangeList/Aggregate 必填] 列表变量的名称 (例如 $myList)。ListVariable 和 InputListVariable 这两个字段是互斥的，用于指定操作的目标列表或输入列表，填其中一个即可。")
+    InputListVariable: Optional[str] = Field(None, description="[Aggregate/ListOperation/Filter/Find/Sort/ChangeList 必填] 列表变量的名称 (例如 $myList)。ListVariable 和 InputListVariable 这两个字段是互斥的，用于指定操作的目标列表或输入列表，填其中一个即可。")
+    Operation: Optional[Literal["Set", "Add", "Remove", "Clear"]] = Field(None, description="[ChangeList 必填] 对列表执行的操作类型，例如 'Set' (替换), 'Add' (添加), 'Remove' (移除), 'Clear' (清空)。")
+    OperationType: Optional[Literal["Head", "Tail"]] = Field(None, description="[ListOperation 必填] 具体操作类型，例如 'Head' (获取列表第一个元素), 'Tail' (获取列表除第一个元素外的所有元素)。目前仅支持 Head 和 Tail。")
+    BinaryOperationListVariable: Optional[str] = Field(None, description="[ListOperation-Union/Intersect 必填] 当 OperationType 为 'Union' 或 'Intersect' 时，第二个列表的变量名 (例如 $anotherList)。")
     
     # --- 5. Logic & Calculation (逻辑/计算) 专用 ---
-    FilterBy: Optional[str] = Field(None, description="[FilterList] 'Attribute' 或 'Association'。")
-    FindBy: Optional[str] = Field(None, description="[FindList] 'Expression', 'Attribute' 或 'Association'。")
-    MemberName: Optional[str] = Field(None, description="[FilterList/FindList] 属性名或关联名。")
-    Expression: Optional[str] = Field(None, description="[Find/Filter/ChangeList] 表达式。注意：字符串需加引号。")
-    Function: Optional[str] = Field(None, description="[AggregateList 必填] 聚合函数: 'Sum', 'Count', 'Average', 'Minimum', 'Maximum'。")
-    Attribute: Optional[str] = Field(None, description="[AggregateList] 要聚合的属性名 (Count除外)。")
+    FilterBy: Optional[Literal["Attribute", "Association"]] = Field(None, description="[FilterList 必填] 过滤依据: 'Attribute' (按属性过滤) 或 'Association' (按关联过滤)。")
+    FindBy: Optional[Literal["Expression", "Attribute", "Association"]] = Field(None, description="[FindList 必填] 查找依据: 'Expression' (按表达式查找), 'Attribute' (按属性查找) 或 'Association' (按关联查找)。")
+    MemberName: Optional[str] = Field(None, description="[FilterList/FindList 必填 (当 FilterBy/FindBy 为 Attribute/Association)] 属性名或关联名。")
+    Expression: Optional[str] = Field(None, description="[FindList (当 FindBy 为 Expression)/FilterList 必填] 表达式。在 ChangeList 中也可用作 ValueExpression。规则：字符串值必须用单引号包裹；变量引用使用 $ 前缀；通过 / 访问对象属性；枚举值使用完全限定名。")
+    Function: Optional[Literal["Sum", "Average", "Count", "Minimum", "Maximum", "All", "Any", "Reduce"]] = Field(None, description="[AggregateList 必填] 聚合函数: 'Sum', 'Average', 'Count', 'Minimum', 'Maximum', 'All', 'Any', 'Reduce'。")
+    Attribute: Optional[str] = Field(None, description="[AggregateList 必填 (当 Function 为 Sum/Average/Minimum/Maximum)] 要进行计算的属性名。必需是数字属性。")
 
 class SimpleMicroflowRequest(BaseModel):
-    FullPath: str = Field(..., description="微流完整路径，必须包含模块名，例如 'MyModule.SubFolder.MyMicroflow' 或 'MyModule/MyMicroflow'。")
-    ReturnType: str = Field(..., description="返回值类型。简单字符串，例如 'String', 'Integer', 'Void', 'MyModule.Customer', 'List(MyModule.Order)'。")
-    ReturnExp: Optional[str] = Field(None, description="返回值表达式。如果是 Void 类型则留空。注意：字符串值需加引号。")
+    FullPath: str = Field(..., description="微流完整路径，必须包含模块名，例如 'MyModule/SubFolder/MyMicroflow' 或 'MyModule/MyMicroflow'。")
+    ReturnType: str = Field(..., description="返回值类型。支持基本类型 (例如 'String', 'Integer', 'Boolean')，实体类型 (例如 'MyModule.Customer')，实体列表 (例如 'List(MyModule.Order)')，或 'Void' (表示不返回任何值)。")
+    ReturnExp: Optional[str] = Field(None, description="返回值表达式。如果 ReturnType 为 'Void'，则此字段应为 null 或空字符串。规则：字符串值必须用单引号包裹；变量引用使用 $ 前缀；通过 / 访问对象属性；枚举值使用完全限定名。")
     Parameters: List[SimpleParameter] = Field([], description="输入参数列表。")
-    Activities: List[UnifiedActivity] = Field(..., description="活动列表，将按顺序执行。请确保引用变量前，该变量已在之前的步骤中定义。")
+    Activities: List[UnifiedActivity] = Field(..., description="活动列表，将按顺序执行。请注意，任何变量在使用之前都必须先通过上游活动 (如 CreateObject 或 Retrieve) 进行定义。")
 
 
 # ==========================================
