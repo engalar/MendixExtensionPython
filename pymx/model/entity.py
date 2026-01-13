@@ -127,7 +127,7 @@ class EntityAssociation(BaseModel):
     class Config:
         allow_population_by_field_name = True
 
-
+# TODO: 添加对Location的支持
 class EntityRequest(BaseModel):
     """Defines a complete request to create a single entity."""
     qualified_name: str = Field(..., alias="QualifiedName",

@@ -1,4 +1,3 @@
-import os
 import clr
 import traceback
 from System import Exception as SystemException
@@ -6,11 +5,32 @@ from System import Exception as SystemException
 clr.AddReference("Mendix.StudioPro.ExtensionsAPI")
 from Mendix.StudioPro.ExtensionsAPI.Model.UntypedModel import PropertyType
 
+# @CORE:UntypedModelWrapper - 核心动态代理框架，提供对 Mendix Untyped Model 的 Pythonic 访问。
+# This module provides a dynamic proxy framework for interacting with Mendix's Untyped Model API.
+# It simplifies property access and type mapping, allowing for a more Pythonic way to navigate the Mendix model.
+
 # ==============================================================================
-# 1. 核心框架 (Core Framework)
+# 概念解释 (Concept Explanations)
+# ==============================================================================
+#
+# **Untyped Model (非类型化模型):**
+#   指通过 `IUntypedModelAccessService` 访问的 Mendix 模型对象。这些对象不具有预定义的 Python 类型，
+#   其属性需要通过 `GetProperty("PropertyName").Value` 动态访问。它们是 Mendix SDK 的底层表示，
+#   提供了极大的灵活性，但也增加了开发的复杂性。
+#
+# **Typed Model (类型化模型):**
+#   指 Mendix API 中预定义了特定类型和接口的模型对象（例如 `IDomainModelService.CreateEntity()` 返回的对象）。
+#   这些对象具有明确的属性和方法签名，易于使用和IDE类型检查。
+#
+# **Wrapped Model (包装模型 / 代理模型):**
+#   指本框架中 `MendixElement` 及其子类。它们封装了 Untyped Model 对象，
+#   通过 Python 的 `__getattr__` 魔法方法，将 `snake_case` 属性名自动映射到 Mendix SDK 的 `CamelCase` 属性，
+#   并自动将返回的 Untyped Model 对象再次封装为 Wrapped Model。这极大地简化了 Untyped Model 的使用，
+#   使其行为类似于 Typed Model，但仍保持了 Untyped Model 的动态性。
+#
 # ==============================================================================
 
-# region 1. 核心框架 (Core Framework)
+
 _MENDIX_TYPE_REGISTRY = {}
 
 
@@ -159,8 +179,6 @@ class MendixElement:
     def __str__(self):
         return self.get_summary()
 
-
-# endregion
 
 # region 2. 类型定义 (Wrapper Classes)
 
@@ -388,6 +406,7 @@ class DataTypes_BooleanType(MendixElement):
 
 # region 2.1 Pages
 from typing import List, Optional
+
 
 # Base Classes for Polymorphism
 
@@ -818,7 +837,9 @@ class Pages_SnippetCall(MendixElement):
 
 # region 2.1 Workflows
 
+
 from typing import List
+
 
 # --- Microflows Module ---
 
@@ -1003,342 +1024,4 @@ class Workflows_CallMicroflowTask(MendixElement):
     pass
 
 
-# endregion
-
-# region 2.1 Projects
-# endregion
-
-# endregion
-
-
-# region 3. 业务逻辑层 (Business Logic)
-class DomainModelAnalyzer:
-    def __init__(self, context):
-        self.ctx = context
-
-    def execute(self, module_name):
-        module = self.ctx.find_module(module_name)
-        if not module:
-            return
-
-        self.ctx.log(f"# DOMAIN MODEL: {module.name}\n")
-        dm = module.get_domain_model()
-        if not dm.is_valid:
-            return
-
-        # 构建局部 Lookup Table，避免全局耦合
-        id_map = {}
-
-        # 1. 分析实体
-        for ent in dm.entities:
-            # 记录 ID 到全名的映射
-            id_map[ent.id] = f"{module.name}.{ent.name}"
-
-            p_tag = " [P]" if ent.is_persistable() else " [NP]"
-            gen_info = (
-                f" extends {ent.generalization.generalization}"
-                if ent.generalization.type_name == "Generalization"
-                else ""
-            )
-            self.ctx.log(f"## Entity: {ent.name}{p_tag}{gen_info}")
-
-            if ent.documentation:
-                self.ctx.log(f"> {ent.documentation}")
-            for attr in ent.attributes:
-                self.ctx.log(attr.get_summary(), indent=1)
-            self.ctx.log("")
-
-        # 2. 分析关联关系 (使用 get_info 传递查找表)
-        if dm.associations:
-            self.ctx.log("## Associations (Internal)")
-            for assoc in dm.associations:
-                self.ctx.log(assoc.get_info(id_map))
-            self.ctx.log("")
-
-        if dm.cross_associations:
-            self.ctx.log("## Associations (Cross)")
-            for assoc in dm.cross_associations:
-                self.ctx.log(assoc.get_info(id_map))
-            self.ctx.log("")
-
-
-class MicroflowAnalyzer:
-    def __init__(self, context):
-        self.ctx = context
-
-    def execute(self, module_name, mf_name):
-        module = self.ctx.find_module(module_name)
-        if not module:
-            return
-        mf = module.find_microflow(mf_name)
-        if not mf.is_valid:
-            return
-
-        # 修改点1：打印全名
-        self.ctx.log(f"# MICROFLOW: {module_name}.{mf.name}\n```")
-
-        nodes = {obj.id: obj for obj in mf.object_collection.objects}
-        adj = {}
-        for flow in mf.flows:
-            src, dst = str(flow.origin), str(flow.destination)
-            if src not in adj:
-                adj[src] = []
-            adj[src].append((flow, dst))
-
-        start_node = next(
-            (n for n in nodes.values() if "StartEvent" in n.type_name), None
-        )
-        if not start_node:
-            return
-
-        stack = [(start_node.id, 0, "")]
-        visited = set()
-
-        while stack:
-            node_id, indent, flow_label = stack.pop()
-            node = nodes.get(node_id)
-            if not node:
-                continue
-
-            label_str = f"--({flow_label})--> " if flow_label else ""
-            self.ctx.log(f"{label_str}{node.get_summary()}", indent=indent)
-
-            if node_id in visited:
-                self.ctx.log("└─ (Jump/Loop)", indent=indent + 1)
-                continue
-            visited.add(node_id)
-
-            out_flows = adj.get(node_id, [])
-            # 修改点2：同一 flow 不增加缩进，只有分叉(Condition)才增加
-            has_branches = len(out_flows) > 1
-
-            for flow, target_id in reversed(out_flows):
-                case_val = ""
-                if has_branches and len(flow.case_values) > 0:
-                    cv = flow.case_values[0]
-                    case_val = getattr(cv, "value", cv.type_name)
-
-                # 如果是单线流，indent不变；如果是分叉流，indent+1
-                new_indent = indent + 1 if has_branches else indent
-                stack.append((target_id, new_indent, case_val))
-
-        self.ctx.log(f"```")
-
-
-class PageAnalyzer:
-    def __init__(self, context):
-        self.ctx = context
-
-    def execute(self, module_name, page_name):
-        module = self.ctx.find_module(module_name)
-        if not module:
-            return
-
-        # 在模块中查找页面
-        raw_page = next(
-            (
-                p
-                for p in module._raw.GetUnitsOfType("Pages$Page")
-                if p.Name == page_name
-            ),
-            None,
-        )
-        if not raw_page:
-            self.ctx.log(f"❌ Page not found: {module_name}.{page_name}")
-            return
-
-        page = ElementFactory.create(raw_page, self.ctx)
-        self.ctx.log(f"# PAGE: {module_name}.{page.name}\n")
-
-        # 遍历布局插槽 (Layout Arguments) 中的组件
-        if page.layout_call:
-            for arg in page.layout_call.arguments:
-                self.ctx.log(f"## Placeholder: {arg.parameter}")
-                for widget in arg.widgets:
-                    self._render_widget(widget, 1)
-
-    def _render_widget(self, w, indent):
-        # 获取组件基本信息
-        name_str = f" ({w.name})" if hasattr(w, "name") and w.name else ""
-        self.ctx.log(f"- [{w.type_name}]{name_str}", indent)
-
-        # 递归处理容器类组件
-        # 1. 通用 widgets 列表 (DivContainer, ScrollContainer 等)
-        if hasattr(w, "widgets"):
-            for child in w.widgets:
-                self._render_widget(child, indent + 1)
-        # 2. 布局表格 (LayoutGrid)
-        elif hasattr(w, "rows"):
-            for row in w.rows:
-                for col in row.columns:
-                    for child in col.widgets:
-                        self._render_widget(child, indent + 1)
-        # 3. 列表/数据容器 (ListView, DataView)
-        elif hasattr(w, "contents") and w.type_name in [
-            "ListView",
-            "DataView",
-            "TemplateGrid",
-        ]:
-            for child in w.contents.widgets:
-                self._render_widget(child, indent + 1)
-
-
-class WorkflowAnalyzer:
-    def __init__(self, context):
-        self.ctx = context
-
-    def execute(self, module_name, wf_name):
-        module = self.ctx.find_module(module_name)
-        if not module:
-            return
-        wf = module.find_workflow(wf_name)
-        if not wf or not wf.is_valid:
-            self.ctx.log(f"❌ Workflow not found: {module_name}.{wf_name}")
-            return
-
-        self.ctx.log(f"# WORKFLOW: {module_name}.{wf.name}\n```")
-        self._render_flow(wf.flow, 0)
-        self.ctx.log(f"```")
-
-    def _render_flow(self, flow, indent):
-        if not flow or not flow.is_valid:
-            return
-
-        for act in flow.activities:
-            # 获取标题和名称
-            caption = act.caption if hasattr(act, "caption") else ""
-            name = f"({act.name})" if hasattr(act, "name") else ""
-            self.ctx.log(f"- [{act.type_name}] {caption} {name}".strip(), indent)
-
-            # 递归处理分支 (Outcomes)
-            if hasattr(act, "outcomes"):
-                # 仅一个outcome且activities为空,可视为无outcome
-                if len(act.outcomes)==1 and len(act.outcomes[0].flow.activities) == 0:
-                    continue
-                for outcome in act.outcomes:
-                    val = getattr(outcome, "value", "Outcome")
-                    self.ctx.log(f" └─ Case: {val}", indent)
-                    # 如果分支有后续 Flow，递归打印
-                    if hasattr(outcome, "flow"):
-                        self._render_flow(outcome.flow, indent + 2)
-
-class ModuleTreeAnalyzer:
-    def __init__(self, context):
-        self.ctx = context
-        # 定义需要展示在树状结构中的文档类型映射
-        self.alias_map = {
-            "Microflows$Microflow": "Microflow",
-            "Pages$Page": "Page",
-            "Workflows$Workflow": "Workflow",
-            "Nanoflows$Nanoflow": "Nanoflow",
-            "Constants$Constant": "Constant",
-            "Enumerations$Enumeration": "Enumeration"
-        }
-
-    def execute(self, module_name):
-        module = self.ctx.find_module(module_name)
-        if not module: return
-
-        self.ctx.log(f"# MODULE STRUCTURE: {module.name}\n```")
-        # 从模块根部开始递归
-        self._render_container(module._raw, 0)
-        self.ctx.log(f"```")
-
-    def _render_container(self, container_raw, indent):
-        """核心逻辑：获取所有单元，过滤掉文件夹重叠和无名单元"""
-        
-        # 1. 获取该容器下所有的单元 (递归获取所有)
-        all_units = list(container_raw.GetUnits())
-        
-        # 2. 识别所有“非直接”的后代 ID
-        # 我们需要先找出所有文件夹，再看这些文件夹里面包含了什么
-        all_sub_folders = [u for u in all_units if u.Type == "Projects$Folder"]
-        
-        descendant_ids = set()
-        for sub_f in all_sub_folders:
-            # 获取该文件夹下的所有子孙单元并记录其 ID
-            for grand_unit in sub_f.GetUnits():
-                descendant_ids.add(grand_unit.ID.ToString())
-
-        # 3. 过滤出当前层级的“直接”单元
-        # 条件：ID 不在后代集合中，且 Name 属性不为空
-        direct_units = [
-            u for u in all_units 
-            if u.ID.ToString() not in descendant_ids and getattr(u, "Name", None)
-        ]
-
-        # 4. 分离文件夹与文档 (用于分别渲染)
-        # direct_folders 仅包含 Projects$Folder
-        direct_folders = [u for u in direct_units if u.Type == "Projects$Folder"]
-        # direct_docs 包含除了文件夹以外的所有东西
-        direct_docs = [u for u in direct_units if u.Type != "Projects$Folder"]
-
-        # 5. 渲染文档
-        # 按名称排序，并处理别名
-        for d in sorted(direct_docs, key=lambda x: x.Name):
-            full_type = d.Type
-            type_label = self.alias_map.get(full_type, full_type.split('$')[-1])
-            self.ctx.log(f"[{type_label}] {d.Name}", indent)
-
-        # 6. 渲染文件夹并递归
-        for f in sorted(direct_folders, key=lambda x: x.Name):
-            self.ctx.log(f"📁 {f.Name}", indent)
-            self._render_container(f, indent + 1)
-
-# endregion
-
-# region 4. 执行入口 (Execution)
-try:
-    PostMessage("backend:clear", "")
-    ctx = MendixContext(currentApp, root)
-
-    # 分析模块文件结构
-    target_mod = "AltairIntegration" # 替换为你的模块名
-    ModuleTreeAnalyzer(ctx).execute(target_mod)
-
-    # 分析领域模型
-    DomainModelAnalyzer(ctx).execute("AmazonBedrockConnector")  # 替换为你的模块名
-
-    # 分析微流
-    MicroflowAnalyzer(ctx).execute(
-        "AltairIntegration", "Tool_SparqlConverter"
-    )  # 替换为你的微流
-    # 分析页面
-    PageAnalyzer(ctx).execute("Evora_UI", "Login")
-    # 参数 1: 模块名, 参数 2: 工作流名
-    WorkflowAnalyzer(ctx).execute("AltairIntegration", "WF_ScheduleTechnicianAppointment")
-    # --- 获取分析报告内容 ---
-    final_report = ctx.flush_logs()
-
-    # --- 保存并打开文件 ---
-    try:
-        # 1. 构建文件路径 (用户根目录/Mendix_Report.md)
-        user_home = os.path.expanduser("~")
-        file_path = os.path.join(user_home, "Mendix_Analysis_Report.md")
-
-        # 2. 写入文件
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(final_report)
-
-        PostMessage("backend:info", f"✅ Report saved to: {file_path}")
-
-        # 3. 使用系统默认程序打开文件 (仅限 Windows)
-        if os.name == "nt":
-            os.startfile(file_path)
-        else:
-            # 兼容其他系统(如果适用)
-            import subprocess
-
-            subprocess.call(
-                ("open" if os.name == "posix" else "start", file_path), shell=True
-            )
-
-    except Exception as file_err:
-        PostMessage("backend:error", f"File operation failed: {str(file_err)}")
-
-    # 依然在 Studio Pro 后端控制台打印一份
-    PostMessage("backend:info", final_report)
-
-except Exception as e:
-    PostMessage("backend:error", f"Error: {str(e)}\n{traceback.format_exc()}")
 # endregion

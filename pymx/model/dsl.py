@@ -11,6 +11,8 @@ import clr
 from typing import Optional, List, Set, Dict, Any
 from collections import defaultdict
 
+from pymx.model.untyped_model_wrapper import ElementFactory
+
 # Import DTOs
 from pymx.model.dto.type_dsl import (
     DSLFormatOptions,
@@ -388,8 +390,9 @@ def generate_domain_model_dsl(app, data: DomainModelDSLInput) -> str:
 class MicroflowAnalyzer:
     """Generates DSL visualization for microflows with ASCII art flow"""
 
-    def __init__(self, app, microflow, options: DSLFormatOptions):
+    def __init__(self, app, module, microflow, options: DSLFormatOptions):
         self.app = app
+        self.module = module
         self.microflow = microflow
         self.options = options
         self.lines = []
@@ -397,9 +400,7 @@ class MicroflowAnalyzer:
     def generate(self, include_expressions: bool = True) -> str:
         """Generate microflow DSL with activity flow"""
 
-        # Get module name from qualified name
-        qname_prop = self.microflow.GetProperty("qualifiedName")
-        module_name = qname_prop.Value.Module.Name if qname_prop else "Unknown"
+        module_name = self.module.Name
         self.lines = [
             f"# Microflow DSL: {module_name}.{self.microflow.Name}",
             "",
@@ -409,50 +410,38 @@ class MicroflowAnalyzer:
         try:
             # Get all objects using untyped API pattern
             model_prop = self.microflow.GetProperty("model")
-            if not model_prop or not model_prop.Value:
-                return f"{self.lines[0]}\n```No model found.```"
+            # @CORE:MicroflowDSL - 使用 ElementFactory 动态代理 untyped microflow 对象，以简化属性访问。
+            # This is crucial for accessing properties like object_collection and flows directly.
+            wrapped_microflow = ElementFactory.create(self.microflow, self.app)
 
-            model = model_prop.Value
-            objects_prop = model.GetProperty("objectCollection")
-            if not objects_prop:
-                return f"{self.lines[0]}\n```No object collection found.```"
+            if not wrapped_microflow.is_valid:
+                return f"{self.lines[0]}\n```Invalid microflow object.```"
 
-            obj_collection_prop = objects_prop.GetProperty("objects")
-            if obj_collection_prop and obj_collection_prop.IsList:
-                object_collection = obj_collection_prop.GetValues()
-            else:
-                object_collection = []
+            # 直接访问动态代理后的 microflow 对象的 object_collection 和 flows 属性
+            # Access objects (activities, events)
+            object_collection = list(wrapped_microflow.object_collection.objects) if wrapped_microflow.object_collection and wrapped_microflow.object_collection.objects else []
+            nodes = {obj.id: obj for obj in object_collection}
 
-            nodes = {obj.ID.ToString(): obj for obj in object_collection}
-
-            # Build adjacency list for flows using untyped API pattern
-            flows_prop = model.GetProperty("flows")
-            if not flows_prop or not flows_prop.IsList:
-                flows = []
-            else:
-                flows = list(flows_prop.GetValues())
+            # Access flows (connections between activities)
+            flows = list(wrapped_microflow.flows) if wrapped_microflow.flows else []
 
             adj = defaultdict(list)
             for flow in flows:
-                origin_prop = flow.GetProperty("origin")
-                destination_prop = flow.GetProperty("destination")
-                if origin_prop and destination_prop:
-                    origin_id_prop = origin_prop.Value.GetProperty("id") if hasattr(origin_prop.Value, "GetProperty") else None
-                    dest_id_prop = destination_prop.Value.GetProperty("id") if hasattr(destination_prop.Value, "GetProperty") else None
-                    if origin_id_prop and dest_id_prop:
-                        src = str(origin_id_prop.Value)
-                        dst = str(dest_id_prop.Value)
-                        adj[src].append((flow, dst))
+                # 使用动态代理后的 flow 对象直接访问 origin 和 destination 属性
+                src = flow.origin.id if flow.origin and hasattr(flow.origin, 'id') else None
+                dst = flow.destination.id if flow.destination and hasattr(flow.destination, 'id') else None
+                if src and dst:
+                    adj[src].append((flow, dst))
 
             # Find start node
-            start_node = next((obj for obj in nodes.values() if "StartEvent" in type(obj).__name__), None)
+            start_node = next((obj for obj in nodes.values() if "StartEvent" in obj.type_name), None)
 
             if not start_node:
                 return f"{self.lines[0]}\n```No start event found.```"
 
             # Traverse flow
             visited = set()
-            stack = [(start_node.ID.ToString(), 0, "")]
+            stack = [(start_node.id, 0, "")]
 
             while stack:
                 node_id, indent, flow_label = stack.pop()
@@ -462,7 +451,7 @@ class MicroflowAnalyzer:
                     continue
 
                 label_str = f"--({flow_label})--> " if flow_label else ""
-                self.lines.append(f"{'  ' * indent}{label_str}{self._get_activity_summary(node, include_expressions)}")
+                self.lines.append(f"{'  ' * indent}{label_str}{self._get_activity_summary(node, wrapped_microflow, include_expressions)}")
 
                 if node_id in visited:
                     self.lines.append(f"{'  ' * (indent + 1)}(Jump/Loop)")
@@ -474,17 +463,11 @@ class MicroflowAnalyzer:
 
                 for flow, target_id in reversed(out_flows):
                     case_val = ""
-                    if has_branches:
-                        # Use untyped API pattern to get case/condition value
-                        case_prop = flow.GetProperty("case") if hasattr(flow, "GetProperty") else None
-                        if case_prop and case_prop.Value:
-                            val_prop = case_prop.Value.GetProperty("value") if hasattr(case_prop.Value, "GetProperty") else None
-                            case_val = val_prop.Value if val_prop else ""
-                        else:
-                            condition_prop = flow.GetProperty("condition") if hasattr(flow, "GetProperty") else None
-                            if condition_prop and condition_prop.Value:
-                                val_prop = condition_prop.Value.GetProperty("value") if hasattr(condition_prop.Value, "GetProperty") else None
-                                case_val = val_prop.Value if val_prop else ""
+                    if has_branches and flow.case_values:
+                        # @CORE:MicroflowDSL - 使用动态代理后的 flow 对象直接访问 case_values。
+                        # Access case_values directly from the proxied flow object.
+                        cv = flow.case_values[0]
+                        case_val = getattr(cv, "value", cv.type_name)
 
                     new_indent = indent + 1 if has_branches else indent
                     stack.append((target_id, new_indent, case_val))
@@ -494,117 +477,103 @@ class MicroflowAnalyzer:
 
         except Exception as e:
             import traceback
-            return f"{self.lines[0]}\n```Error generating microflow DSL: {e}\n{traceback.format_exc()}```"
+            error_msg = f"Error generating microflow DSL: {e}\n{traceback.format_exc()}"
+            self.lines.append(f"```Error: {error_msg}```")
+            return "\n".join(self.lines)
 
-    def _get_prop(self, obj, prop_name: str, default=None):
-        """Helper to safely get property value from untyped object"""
-        if not obj or not hasattr(obj, "GetProperty"):
-            return default
-        prop = obj.GetProperty(prop_name)
-        return prop.Value if prop else default
 
-    def _get_activity_summary(self, obj, include_expressions: bool) -> str:
+    def _get_activity_summary(self, obj, wrapped_microflow, include_expressions: bool) -> str:
         """Get human-readable summary of an activity using untyped API pattern"""
         # Get the Mendix type name (e.g., "Microflows$StartEvent" -> "StartEvent")
-        obj_type = obj.Type.split("$")[-1] if hasattr(obj, "Type") else type(obj).__name__
+        obj_type = obj.type_name # Use proxied object's type_name
 
         try:
+            # @CORE:MicroflowDSL - 在 StartEvent 中，参数属于微流对象本身，而非 StartEvent 活动对象。
+            # Therefore, we access parameters from the wrapped_microflow (proxied microflow object).
             if "StartEvent" in obj_type:
-                # Get parameters from microflow
-                params_prop = self.microflow.GetProperty("parameters")
-                if params_prop and params_prop.IsList:
-                    params = list(params_prop.GetValues())
-                    if params:
-                        param_list = []
-                        for p in params:
-                            p_name = self._get_prop(p, "name", "?")
-                            p_type = self._get_prop(p, "type", "?")
-                            # Get type name
-                            type_obj = p_type
-                            if hasattr(type_obj, "Type"):
-                                p_type_str = type_obj.Type.split("$")[-1]
-                            elif hasattr(type_obj, "FullName"):
-                                p_type_str = type_obj.FullName
-                            else:
-                                p_type_str = str(p_type)
-                            param_list.append(f"{p_name}:{p_type_str}")
-                        param_str = ", ".join(param_list)
-                        return f"Start({param_str})"
+                params = wrapped_microflow.parameters
+                if params:
+                    param_list = []
+                    for p in params:
+                        p_name = p.name
+                        p_type_str = p.type
+                        param_list.append(f"{p_name}:{p_type_str}")
+                    param_str = ", ".join(param_list)
+                    return f"Start({param_str})"
                 return "Start"
 
             elif "EndEvent" in obj_type:
-                ret = self._get_prop(obj, "returnValue")
+                ret = obj.return_value
                 if ret:
                     return f"End (Return: {ret})"
                 return "End"
 
             elif "ActionActivity" in obj_type:
-                action = self._get_prop(obj, "action")
+                # @CORE:MicroflowDSL - 直接访问动态代理后的 Action 对象。
+                # Directly access the proxied Action object.
+                action = obj.action
                 if not action:
                     return "[ActionActivity]"
 
-                action_type = action.Type.split("$")[-1] if hasattr(action, "Type") else type(action).__name__
+                action_type = action.type_name
 
                 if "MicroflowCallAction" in action_type:
-                    mf_call = self._get_prop(action, "microflowCall")
+                    mf_call = action.microflow_call
                     if mf_call:
-                        mf = self._get_prop(mf_call, "microflow")
-                        mf_name = mf.FullName if hasattr(mf, "FullName") else self._get_prop(mf, "name", "Unknown")
+                        mf_name = mf_call.microflow.name
                     else:
                         mf_name = "Unknown"
-                    use_return = self._get_prop(obj, "useReturnVariable", False)
-                    output_var = self._get_prop(obj, "outputVariableName", "")
+                    use_return = obj.use_return_variable
+                    output_var = obj.output_variable_name
                     out = f" -> ${output_var}" if use_return and output_var else ""
                     return f"Call: {mf_name}{out}"
 
                 elif "CreateVariableAction" in action_type:
-                    var_name = self._get_prop(action, "variableName", "")
-                    var_type = self._get_prop(action, "variableType", "")
-                    val = (self._get_prop(action, "initialValue", "") or "")[:50]
+                    var_name = action.variable_name
+                    var_type = action.variable_type
+                    val = (action.initial_value or "")[:50]
                     return f"Create: ${var_name} ({var_type}) = {val}"
 
                 elif "ChangeVariableAction" in action_type:
-                    var_name = self._get_prop(action, "variableName", "")
-                    val = (self._get_prop(action, "value", "") or "")[:50]
+                    var_name = action.variable_name
+                    val = (action.value or "")[:50]
                     return f"Change: ${var_name} = {val}"
 
                 elif "DeleteObjectAction" in action_type:
-                    obj_name = self._get_prop(action, "objectName", "")
+                    obj_name = action.object_name
                     return f"Delete: ${obj_name}"
 
                 elif "CommitAction" in action_type:
-                    obj_name = self._get_prop(action, "objectName", "")
+                    obj_name = action.object_name
                     return f"Commit: ${obj_name}"
 
                 elif "RollbackAction" in action_type:
-                    obj_name = self._get_prop(action, "objectName", "")
+                    obj_name = action.object_name
                     return f"Rollback: ${obj_name}"
 
                 elif "RetrieveAction" in action_type:
-                    source = self._get_prop(action, "retrieveSource")
+                    source = action.retrieve_source
                     if source:
-                        entity = self._get_prop(source, "entity")
-                        entity_name = entity.FullName if hasattr(entity, "FullName") else self._get_prop(entity, "name", "Unknown")
-                        xpath = self._get_prop(source, "xPath", "")
+                        entity_name = source.entity.name
+                        xpath = source.x_path_constraint
                         xpath_str = f" [{xpath}]" if xpath and include_expressions else ""
-                        output_var = self._get_prop(obj, "outputVariableName", "")
+                        output_var = obj.output_variable_name
                         return f"Retrieve: {entity_name}{xpath_str} -> ${output_var}"
                     return "Retrieve"
 
                 elif "CreateObjectAction" in action_type:
-                    entity = self._get_prop(action, "entity")
-                    entity_name = entity.FullName if hasattr(entity, "FullName") else self._get_prop(entity, "name", "Unknown")
-                    output_var = self._get_prop(obj, "outputVariableName", "")
+                    entity_name = action.entity.name
+                    output_var = obj.output_variable_name
                     return f"CreateObject: {entity_name} -> ${output_var}"
 
                 else:
                     return f"[{action_type}]"
 
             elif "ExclusiveSplit" in obj_type:
-                condition = self._get_prop(obj, "splitCondition")
+                condition = obj.split_condition
                 if condition:
-                    expr = self._get_prop(condition, "value", "")
-                    caption = self._get_prop(obj, "caption", "")
+                    expr = condition.expression
+                    caption = obj.caption
                     if caption and caption != expr:
                         return f"Decision: {caption} [{expr[:50]}]"
                     return f"Decision: {expr[:50]}"
@@ -636,7 +605,9 @@ def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
         # Parse qualified name
         parts = data.qualified_name.split(".")
         if len(parts) < 2:
-            return f"Error: Invalid qualified name '{data.qualified_name}'. Expected format: Module.MicroflowName"
+            error_msg = f"Error: Invalid qualified name '{data.qualified_name}'. Expected format: Module.MicroflowName"
+            ctx.log(error_msg)
+            return error_msg
 
         module_name = parts[0]
         mf_name = parts[-1]
@@ -647,21 +618,27 @@ def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
         module = next((m for m in modules if m.Name == module_name), None)
 
         if not module:
-            return f"Error: Module '{module_name}' not found."
+            error_msg = f"Error: Module '{module_name}' not found."
+            ctx.log(error_msg)
+            return error_msg
 
         # Find microflow
         microflows = list(module.GetUnitsOfType("Microflows$Microflow"))
         microflow = next((mf for mf in microflows if mf.Name == mf_name), None)
 
         if not microflow:
-            return f"Error: Microflow '{mf_name}' not found in module '{module_name}'."
+            error_msg = f"Error: Microflow '{mf_name}' not found in module '{module_name}'."
+            ctx.log(error_msg)
+            return error_msg
 
-        analyzer = MicroflowAnalyzer(app, microflow, data.format_options)
+        analyzer = MicroflowAnalyzer(app, module, microflow, data.format_options)
         return analyzer.generate(data.include_expressions)
 
     except Exception as e:
         import traceback
-        return f"Error generating microflow DSL: {e}\n{traceback.format_exc()}"
+        error_msg = f"Error generating microflow DSL: {e}\n{traceback.format_exc()}"
+        ctx.log(error_msg)
+        return error_msg
 
 
 # ==========================================
@@ -672,17 +649,16 @@ def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
 class PageAnalyzer:
     """Generates DSL for page widget tree structure"""
 
-    def __init__(self, app, page, options: DSLFormatOptions):
+    def __init__(self, app, module, page, options: DSLFormatOptions):
         self.app = app
+        self.module = module
         self.page = page
         self.options = options
         self.lines = []
 
     def generate(self, include_widget_properties: bool = False) -> str:
         """Generate page widget tree DSL"""
-        # Get module name from qualified name using untyped API pattern
-        qname_prop = self.page.GetProperty("qualifiedName")
-        module_name = qname_prop.Value.Module.Name if qname_prop else "Unknown"
+        module_name = self.module.Name
         self.lines = [
             f"# Page DSL: {module_name}.{self.page.Name}",
             ""
@@ -788,7 +764,7 @@ def generate_page_dsl(app, data: PageDSLInput) -> str:
         if not page:
             return f"Error: Page '{page_name}' not found in module '{module_name}'."
 
-        analyzer = PageAnalyzer(app, page, data.format_options)
+        analyzer = PageAnalyzer(app, module, page, data.format_options)
         return analyzer.generate(data.include_widget_properties)
 
     except Exception as e:
@@ -804,17 +780,16 @@ def generate_page_dsl(app, data: PageDSLInput) -> str:
 class WorkflowAnalyzer:
     """Generates DSL for workflow activity flows (Mendix 9.24+)"""
 
-    def __init__(self, app, workflow, options: DSLFormatOptions):
+    def __init__(self, app, module, workflow, options: DSLFormatOptions):
         self.app = app
+        self.module = module
         self.workflow = workflow
         self.options = options
         self.lines = []
 
     def generate(self) -> str:
         """Generate workflow DSL"""
-        # Get module name from qualified name using untyped API pattern
-        qname_prop = self.workflow.GetProperty("qualifiedName")
-        module_name = qname_prop.Value.Module.Name if qname_prop else "Unknown"
+        module_name = self.module.Name
         self.lines = [
             f"# Workflow DSL: {module_name}.{self.workflow.Name}",
             ""
@@ -908,7 +883,7 @@ def generate_workflow_dsl(app, data: WorkflowDSLInput) -> str:
         except Exception:
             return f"Error: Workflows are not supported in this Mendix version (requires 9.24+)."
 
-        analyzer = WorkflowAnalyzer(app, workflow, data.format_options)
+        analyzer = WorkflowAnalyzer(app, module, workflow, data.format_options)
         return analyzer.generate()
 
     except Exception as e:

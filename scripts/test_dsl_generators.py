@@ -14,7 +14,7 @@ import requests
 import json
 
 # Configuration
-BASE_URL = "http://localhost:8008/a/mcp"
+BASE_URL = "http://127.0.0.1:8008/a/mcp"
 HEADERS = {
     "accept": "application/json, text/event-stream",
     "content-type": "application/json",

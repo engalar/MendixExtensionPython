@@ -163,7 +163,7 @@ async def create_enumerations(current_app, requests: List[EnumerationRequest]) -
     # 最终摘要
     report_lines.append("\n\n--- Final Summary ---")
     report_lines.append(
-        f"Total requests processed: {len(tool_input.requests)}")
+        f"Total requests processed: {len(requests)}")
     report_lines.append(f"Successful: {success_count}")
     report_lines.append(f"Failed: {failure_count}")
     report_lines.append("---------------------")
