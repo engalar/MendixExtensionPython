@@ -22,42 +22,42 @@ importlib.reload(type_dsl)
 # Helper Functions
 # ==========================================
 
+# @CORE:DSL.TypeParser - Parses Mendix type objects into strings.
 def _get_type_as_string(type_obj):
     """
     Recursively analyzes a Mendix type object from the Untyped API and returns a readable string representation.
+    Handles various nested structures for return types and parameters.
     """
     if not type_obj:
         return "Void"
 
     try:
-        # The object's own type tells us what kind of type it is (e.g., EntityType, ListType)
-        type_name = str(type_obj.Type)
+        # Check the type of the current object itself first
+        type_name_raw = str(type_obj.Type)
 
-        if "EntityType" in type_name:
-            # For entity types, the qualified name is in the 'entity' property's value
-            entity_prop = type_obj.GetProperty("entity")
-            if entity_prop and entity_prop.Value:
-                # The value *is* the string, not an object with .QualifiedName
+        # Case 1: If it's a direct ListType or EntityType (for Java Action parameters, this is the final nested type)
+        # The 'entity' property contains the qualified name string directly.
+        entity_prop = type_obj.GetProperty("entity")
+        if entity_prop and entity_prop.Value:
+            if "ListType" in type_name_raw:
+                return f"List({entity_prop.Value})"
+            # It's an EntityType or CodeActions$ConcreteEntityType pointing to an entity
+            else:
                 return f"Object({entity_prop.Value})"
 
-        elif "ListType" in type_name:
-            # For list types, we find what entity the list contains and recurse
-            entity_prop = type_obj.GetProperty("entity")
-            if entity_prop and entity_prop.Value:
-                # Recursively parse the inner type
-                inner_type = _get_type_as_string(entity_prop.Value)
-                # Strip "Object()" wrapper if present, as it's a list of them
-                if inner_type.startswith("Object("):
-                    inner_type = inner_type[7:-1]
-                return f"List({inner_type})"
+        # Case 2: If it's a CodeActions$ParameterType, it has a 'type' property that points to the actual type definition
+        type_prop = type_obj.GetProperty("type")
+        if type_prop and type_prop.Value:
+            # Recurse with the nested object (e.g., a CodeActions$ConcreteEntityType or a primitive type)
+            return _get_type_as_string(type_prop.Value)
 
-        # Handle basic data types by cleaning up the Mendix type name
-        if "Type" in type_name:
-             # e.g., "JavaActions$StringType" -> "String"
-            return type_name.split('$')[-1].replace("Type", "")
+        # Case 3: Primitive Types (Fallback if no entity/type property)
+        if "Type" in type_name_raw:
+            # e.g., "JavaActions$StringType" -> "String"
+            return type_name_raw.split('$')[-1].replace("Type", "")
 
     except Exception:
-        # Fallback for unexpected structures
+        # Fallback for any unexpected structures
         pass
 
     # Default fallback if no specific logic matches
