@@ -597,7 +597,7 @@ class MicroflowAnalyzer:
         except Exception as e:
             return f"[{obj_type}: Error: {e}]"
 
-
+# TODO: DSL的输出能与对应的工具输入对齐，为LLM提供参考价值
 def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
     """Generate DSL for microflow"""
     try:
@@ -971,8 +971,8 @@ class ModuleTreeAnalyzer:
                 continue
 
             full_type = doc.Type
-            type_label = self.alias_map.get(full_type, full_type.split("$")[-1])
-            self.lines.append(f"{'  ' * indent}[{type_label}] {doc_name}")
+            # type_label = self.alias_map.get(full_type, full_type.split("$")[-1])
+            self.lines.append(f"{'  ' * indent}[{full_type}] {doc_name}")
 
         # Render folders recursively using untyped API pattern
         for folder in sorted(direct_folders, key=lambda x: x.GetProperty("name").Value if hasattr(x, "GetProperty") and x.GetProperty("name") else ""):
@@ -1010,3 +1010,8 @@ def generate_module_tree_dsl(app, data: ModuleTreeDSLInput) -> str:
     except Exception as e:
         import traceback
         return f"Error generating module tree DSL: {e}\n{traceback.format_exc()}"
+
+
+# TODO: 对此文件进行模块化重构
+
+# TODO: 添加对Java action的DSL支持
