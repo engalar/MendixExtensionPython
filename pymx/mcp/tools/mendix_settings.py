@@ -35,5 +35,5 @@ async def create_mendix_settings(data: type_settings.SettingsRequest) -> str:
     # 这种方式将工具的定义（本文件）与具体的实现逻辑（settings.py）解耦。
     # ctx.CurrentApp 提供了对当前 Mendix Studio Pro App 实例的访问。
     importlib.reload(settings)  # temp reload in dev mode
-    report = await settings.create_settings(ctx, data)
+    report = await settings.create_or_update_settings(ctx, data)
     return report

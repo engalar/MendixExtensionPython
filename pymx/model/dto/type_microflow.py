@@ -304,7 +304,7 @@ class ChangeItem(BaseModel):
         alias="Action",
         description="操作类型：'Set' (赋值), 'Add' (添加到引用集), 'Remove' (从引用集移除)。默认为 'Set'。"
     )
-    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式。规则：字符串需用单引号包裹 (e.g., `'Hello'`)；变量引用需加 `$` (e.g., `$myVar`)；属性访问用 `/` (e.g., `$MyObj/Attr`)；枚举格式为 `Module.Enum.Value`。")
+    value_expression: str = Field(..., alias="ValueExpression", description="值的表达式。规则：字符串需用单引号包裹 (e.g., `'Hello'`)；变量引用需加 `$` (e.g., `$myVar`)；属性访问用 `/` (e.g., `$MyObj/Attr`)；枚举格式为 `Module.Enum.Value`。如果是日期时间类型且使用系统变量则不用加引号，例如系统变量[%CurrentDateTime%]")
 
     @model_validator(mode="after")
     def check_attribute_or_association(self) -> Self:

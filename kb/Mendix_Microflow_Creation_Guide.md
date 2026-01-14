@@ -625,3 +625,6 @@ abs($number)
 3. **Action 选择**：
    - `Reference` 类型关联只能使用 `Set`
    - `ReferenceSet` 类型关联使用 `Add` 或 `Remove`
+
+### 最佳实践
+因为API的限制，目前支持的活动有限，并且也不支持分支。但需要尽量减少后续人工，生成尽可能多的内容。

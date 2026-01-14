@@ -38,7 +38,7 @@ def callAsType(model, obj, type, methodName, params=None):
     return mi.Invoke(obj, params)
 
 
-async def create_settings(ctx: Any, request: type_settings.SettingsRequest) -> str:
+async def create_or_update_settings(ctx: Any, request: type_settings.SettingsRequest) -> str:
     """
     创建或更新配置设置，并返回一个纯文本报告。
     """
@@ -161,3 +161,5 @@ async def create_settings(ctx: Any, request: type_settings.SettingsRequest) -> s
     report_lines.append("---------------------")
 
     return "\n".join(report_lines)
+
+# TODO: a mcp resource to read settings
