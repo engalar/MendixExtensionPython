@@ -14,13 +14,6 @@ from pymx.model import dsl
 importlib.reload(dsl)
 from pymx.model.dto import type_dsl
 importlib.reload(type_dsl)
-from pymx.model.dto.type_dsl import (
-    DomainModelDSLInput,
-    MicroflowDSLInput,
-    PageDSLInput,
-    WorkflowDSLInput,
-    ModuleTreeDSLInput
-)
 
 # ==========================================
 # DSL TOOLS (On-demand generation)
@@ -31,7 +24,7 @@ from pymx.model.dto.type_dsl import (
     name="generate_domain_model_dsl",
     description="Generate human-readable DSL documentation for entities, attributes, and associations in a module"
 )
-async def tool_domain_model_dsl(data: DomainModelDSLInput) -> str:
+async def tool_domain_model_dsl(data: type_dsl.DomainModelDSLInput) -> str:
     """
     Generate DomainModel DSL for a module.
 
@@ -48,7 +41,7 @@ async def tool_domain_model_dsl(data: DomainModelDSLInput) -> str:
     name="generate_microflow_dsl",
     description="Generate ASCII art flow visualization for a microflow with activity details"
 )
-async def tool_microflow_dsl(data: MicroflowDSLInput) -> str:
+async def tool_microflow_dsl(data: type_dsl.MicroflowDSLInput) -> str:
     """
     Generate Microflow DSL with activity flow visualization.
 
@@ -65,7 +58,7 @@ async def tool_microflow_dsl(data: MicroflowDSLInput) -> str:
     name="generate_page_dsl",
     description="Generate widget tree structure DSL for a page"
 )
-async def tool_page_dsl(data: PageDSLInput) -> str:
+async def tool_page_dsl(data: type_dsl.PageDSLInput) -> str:
     """
     Generate Page DSL showing widget hierarchy.
 
@@ -82,7 +75,7 @@ async def tool_page_dsl(data: PageDSLInput) -> str:
     name="generate_workflow_dsl",
     description="Generate activity flow DSL for a workflow (Mendix 9.24+)"
 )
-async def tool_workflow_dsl(data: WorkflowDSLInput) -> str:
+async def tool_workflow_dsl(data: type_dsl.WorkflowDSLInput) -> str:
     """
     Generate Workflow DSL with user tasks and flow visualization.
 
@@ -99,7 +92,7 @@ async def tool_workflow_dsl(data: WorkflowDSLInput) -> str:
     name="generate_module_tree_dsl",
     description="Generate file/folder tree DSL for a module's structure"
 )
-async def tool_module_tree_dsl(data: ModuleTreeDSLInput) -> str:
+async def tool_module_tree_dsl(data: type_dsl.ModuleTreeDSLInput) -> str:
     """
     Generate ModuleTree DSL showing folder and document structure.
 
@@ -110,6 +103,14 @@ async def tool_module_tree_dsl(data: ModuleTreeDSLInput) -> str:
         DSL string with ASCII tree of module contents
     """
     return dsl.generate_module_tree_dsl(ctx.CurrentApp, data)
+
+
+@mcp.tool(
+    name="generate_java_action_dsl",
+    description="Generate human-readable DSL for all Java Actions in a module"
+)
+async def tool_java_action_dsl(data: type_dsl.JavaActionDSLInput) -> str:
+    return dsl.generate_java_action_dsl(ctx.CurrentApp, data)
 
 
 # ==========================================
@@ -133,7 +134,7 @@ def resource_domain_model_dsl(module_name: str) -> str:
 
     使用scripts/test_mcp_studiopro.py进行测试
     """
-    data = DomainModelDSLInput(ModuleName=module_name)
+    data = type_dsl.DomainModelDSLInput(ModuleName=module_name)
     return dsl.generate_domain_model_dsl(ctx.CurrentApp, data)
 
 
@@ -148,7 +149,7 @@ def resource_microflow_dsl(qualified_name: str) -> str:
 
     Example: model://dsl/microflow/MyModule.MyMicroflow.mfmicroflow.txt
     """
-    data = MicroflowDSLInput(QualifiedName=qualified_name)
+    data = type_dsl.MicroflowDSLInput(QualifiedName=qualified_name)
     return dsl.generate_microflow_dsl(ctx.CurrentApp, data)
 
 
@@ -164,7 +165,7 @@ def resource_page_dsl(qualified_name: str) -> str:
     Example: model://dsl/page/MyModule.MyPage.mfpage.txt
              model://dsl/page/MyModule.Pages.MyPage.mfpage.txt
     """
-    data = PageDSLInput(QualifiedName=qualified_name)
+    data = type_dsl.PageDSLInput(QualifiedName=qualified_name)
     return dsl.generate_page_dsl(ctx.CurrentApp, data)
 
 
@@ -179,7 +180,7 @@ def resource_workflow_dsl(qualified_name: str) -> str:
 
     Example: model://dsl/workflow/MyModule.MyWorkflow.mfworkflow.txt
     """
-    data = WorkflowDSLInput(QualifiedName=qualified_name)
+    data = type_dsl.WorkflowDSLInput(QualifiedName=qualified_name)
     return dsl.generate_workflow_dsl(ctx.CurrentApp, data)
 
 
@@ -194,8 +195,18 @@ def resource_module_tree_dsl(module_name: str) -> str:
 
     Example: model://dsl/module/MyModule.mfmodule.tree.txt
     """
-    data = ModuleTreeDSLInput(ModuleName=module_name)
+    data = type_dsl.ModuleTreeDSLInput(ModuleName=module_name)
     return dsl.generate_module_tree_dsl(ctx.CurrentApp, data)
+
+
+@mcp.resource(
+    "model://dsl/java_actions/{module_name}.mxjavaactions.txt",
+    description="DSL for all Java Actions in a module",
+    mime_type="text/plain"
+)
+def resource_java_action_dsl(module_name: str) -> str:
+    data = type_dsl.JavaActionDSLInput(ModuleName=module_name)
+    return dsl.generate_java_action_dsl(ctx.CurrentApp, data)
 
 
 # ==========================================

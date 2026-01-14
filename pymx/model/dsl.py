@@ -13,15 +13,56 @@ from collections import defaultdict
 
 from pymx.model.untyped_model_wrapper import ElementFactory
 
-# Import DTOs
-from pymx.model.dto.type_dsl import (
-    DSLFormatOptions,
-    DomainModelDSLInput,
-    MicroflowDSLInput,
-    PageDSLInput,
-    WorkflowDSLInput,
-    ModuleTreeDSLInput
-)
+from pymx.model.dto import type_dsl
+import importlib
+importlib.reload(type_dsl)
+
+
+# ==========================================
+# Helper Functions
+# ==========================================
+
+def _get_type_as_string(type_obj):
+    """
+    Recursively analyzes a Mendix type object from the Untyped API and returns a readable string representation.
+    """
+    if not type_obj:
+        return "Void"
+
+    try:
+        # The object's own type tells us what kind of type it is (e.g., EntityType, ListType)
+        type_name = str(type_obj.Type)
+
+        if "EntityType" in type_name:
+            # For entity types, the qualified name is in the 'entity' property's value
+            entity_prop = type_obj.GetProperty("entity")
+            if entity_prop and entity_prop.Value:
+                # The value *is* the string, not an object with .QualifiedName
+                return f"Object({entity_prop.Value})"
+
+        elif "ListType" in type_name:
+            # For list types, we find what entity the list contains and recurse
+            entity_prop = type_obj.GetProperty("entity")
+            if entity_prop and entity_prop.Value:
+                # Recursively parse the inner type
+                inner_type = _get_type_as_string(entity_prop.Value)
+                # Strip "Object()" wrapper if present, as it's a list of them
+                if inner_type.startswith("Object("):
+                    inner_type = inner_type[7:-1]
+                return f"List({inner_type})"
+
+        # Handle basic data types by cleaning up the Mendix type name
+        if "Type" in type_name:
+             # e.g., "JavaActions$StringType" -> "String"
+            return type_name.split('$')[-1].replace("Type", "")
+
+    except Exception:
+        # Fallback for unexpected structures
+        pass
+
+    # Default fallback if no specific logic matches
+    return "UnsupportedType"
+
 
 # ==========================================
 # 1. DomainModel DSL Generator
@@ -49,7 +90,7 @@ class DomainModelAnalyzer:
             name = entity.GetProperty("name").Value
     """
 
-    def __init__(self, app, untyped_module, options: DSLFormatOptions):
+    def __init__(self, app, untyped_module, options: type_dsl.DSLFormatOptions):
         """Initialize analyzer with untyped module object.
 
         Args:
@@ -364,7 +405,7 @@ class DomainModelAnalyzer:
         self.lines.append(f"- [Cross] {assoc_name}: {parent_short} -> {child_name} [Type:{assoc_type}, Owner:{owner}]")
 
 
-def generate_domain_model_dsl(app, data: DomainModelDSLInput) -> str:
+def generate_domain_model_dsl(app, data: type_dsl.DomainModelDSLInput) -> str:
     try:
         from pymx.mcp import mendix_context as ctx
         untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
@@ -390,7 +431,7 @@ def generate_domain_model_dsl(app, data: DomainModelDSLInput) -> str:
 class MicroflowAnalyzer:
     """Generates DSL visualization for microflows with ASCII art flow"""
 
-    def __init__(self, app, module, microflow, options: DSLFormatOptions):
+    def __init__(self, app, module, microflow, options: type_dsl.DSLFormatOptions):
         self.app = app
         self.module = module
         self.microflow = microflow
@@ -598,7 +639,7 @@ class MicroflowAnalyzer:
             return f"[{obj_type}: Error: {e}]"
 
 # TODO: DSL的输出能与对应的工具输入对齐，为LLM提供参考价值
-def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
+def generate_microflow_dsl(app, data: type_dsl.MicroflowDSLInput) -> str:
     """Generate DSL for microflow"""
     try:
         from pymx.mcp import mendix_context as ctx
@@ -649,7 +690,7 @@ def generate_microflow_dsl(app, data: MicroflowDSLInput) -> str:
 class PageAnalyzer:
     """Generates DSL for page widget tree structure"""
 
-    def __init__(self, app, module, page, options: DSLFormatOptions):
+    def __init__(self, app, module, page, options: type_dsl.DSLFormatOptions):
         self.app = app
         self.module = module
         self.page = page
@@ -737,7 +778,7 @@ class PageAnalyzer:
                                         self._render_widget(child, indent + 1, include_properties)
 
 
-def generate_page_dsl(app, data: PageDSLInput) -> str:
+def generate_page_dsl(app, data: type_dsl.PageDSLInput) -> str:
     """Generate DSL for page"""
     try:
         from pymx.mcp import mendix_context as ctx
@@ -780,7 +821,7 @@ def generate_page_dsl(app, data: PageDSLInput) -> str:
 class WorkflowAnalyzer:
     """Generates DSL for workflow activity flows (Mendix 9.24+)"""
 
-    def __init__(self, app, module, workflow, options: DSLFormatOptions):
+    def __init__(self, app, module, workflow, options: type_dsl.DSLFormatOptions):
         self.app = app
         self.module = module
         self.workflow = workflow
@@ -853,7 +894,7 @@ class WorkflowAnalyzer:
                         self._render_flow(flow_prop.Value, indent + 2)
 
 
-def generate_workflow_dsl(app, data: WorkflowDSLInput) -> str:
+def generate_workflow_dsl(app, data: type_dsl.WorkflowDSLInput) -> str:
     """Generate DSL for workflow"""
     try:
         from pymx.mcp import mendix_context as ctx
@@ -899,7 +940,7 @@ def generate_workflow_dsl(app, data: WorkflowDSLInput) -> str:
 class ModuleTreeAnalyzer:
     """Generates DSL for module file/folder structure"""
 
-    def __init__(self, app, module, options: DSLFormatOptions):
+    def __init__(self, app, module, options: type_dsl.DSLFormatOptions):
         self.app = app
         self.module = module
         self.options = options
@@ -992,7 +1033,7 @@ class ModuleTreeAnalyzer:
             pass
 
 
-def generate_module_tree_dsl(app, data: ModuleTreeDSLInput) -> str:
+def generate_module_tree_dsl(app, data: type_dsl.ModuleTreeDSLInput) -> str:
     """Generate DSL for module file/folder tree"""
     try:
         from pymx.mcp import mendix_context as ctx
@@ -1012,6 +1053,60 @@ def generate_module_tree_dsl(app, data: ModuleTreeDSLInput) -> str:
         return f"Error generating module tree DSL: {e}\n{traceback.format_exc()}"
 
 
-# TODO: 对此文件进行模块化重构
 
-# TODO: 添加对Java action的DSL支持
+# ==========================================
+# 6. JavaAction DSL Generator
+# ==========================================
+
+# @CORE:DSL.JavaAction - Generates DSL for Java Actions in a module.
+def generate_java_action_dsl(app, data: type_dsl.JavaActionDSLInput) -> str:
+    try:
+        from pymx.mcp import mendix_context as ctx
+
+        results = []
+        untypedRoot = ctx.untypedModelAccessService.GetUntypedModel(app)
+
+        modules = untypedRoot.GetUnitsOfType("Projects$Module")
+        module = next((m for m in modules if m.Name == data.module_name), None)
+
+        if not module:
+            return f"Error: Module '{data.module_name}' not found."
+
+        java_actions = list(module.GetUnitsOfType("JavaActions$JavaAction"))
+        if not java_actions:
+            return f"No JavaAction found in module '{data.module_name}'."
+
+        for action in java_actions:
+            action_name = action.Name
+            if not action_name:
+                continue
+
+            return_type_prop = action.GetProperty("actionReturnType")
+            return_type_obj = return_type_prop.Value if return_type_prop else None
+            return_type_str = _get_type_as_string(return_type_obj)
+
+            param_strs = []
+            params_prop = action.GetProperty("actionParameters")
+            if params_prop and params_prop.IsList:
+                for param in params_prop.GetValues():
+                    param_name = param.Name
+                    param_type_prop = param.GetProperty("actionParameterType")
+
+                    if not (param_name and param_type_prop and param_type_prop.Value):
+                        continue
+
+                    param_type_obj = param_type_prop.Value
+                    param_type_str = _get_type_as_string(param_type_obj)
+                    param_strs.append(f"{param_name}: {param_type_str}")
+
+            params_output = ", ".join(param_strs)
+            results.append(f"JAVA ACTION {action_name}({params_output}) -> {return_type_str}")
+
+        return "\n".join(results)
+
+    except Exception as e:
+        import traceback
+        return f"Error generating Java Action DSL: {e}\n{traceback.format_exc()}"
+
+
+# TODO: 对此文件进行模块化重构

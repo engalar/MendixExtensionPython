@@ -105,3 +105,17 @@ class ModuleTreeDSLInput(BaseModel):
     format_options: DSLFormatOptions = Field(
         default_factory=DSLFormatOptions, alias="FormatOptions"
     )
+
+
+class JavaActionDSLInput(BaseModel):
+    """Input for generating JavaAction DSL for a module."""
+    model_config = {"populate_by_name": True}
+
+    module_name: str = Field(
+        ..., alias="ModuleName",
+        description="Name of the module to analyze"
+    )
+    format_options: DSLFormatOptions = Field(
+        default_factory=DSLFormatOptions, alias="FormatOptions",
+        description="Output format configuration"
+    )

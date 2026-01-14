@@ -13,7 +13,7 @@ from io import StringIO
 # TODO: 描述中添加更明确的提示词引导LLM使用
 @mcp.tool(
     name="execute_python",
-    description="执行 Python 代码并返回输出结果。代码在 Studio Pro 进程中运行，可以访问所有 Mendix 服务。"
+    description="执行 Python 代码并返回输出结果。代码在 Studio Pro 进程中运行，可以访问所有 Mendix 服务。The tool looks for a local variable named 'result' as the return value"
 )
 async def execute_python(
     code: Annotated[str, Field(description="要执行的 Python 代码，通常是一个无参函数，返回字符串")]
